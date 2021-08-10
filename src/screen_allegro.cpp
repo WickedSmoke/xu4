@@ -68,7 +68,7 @@ static ALLEGRO_MOUSE_CURSOR* screenInitCursor(ALLEGRO_BITMAP* bmp, const char * 
 #endif
 
 
-void screenInit_sys(const Settings* settings, int reset) {
+void screenInit_sys(const Settings* settings, int* dim, int reset) {
     ScreenAllegro* sa;
 #ifdef USE_GL
     // NOTE: _FORWARD_COMPATIBLE requires al_set_current_opengl_context()
@@ -125,6 +125,9 @@ void screenInit_sys(const Settings* settings, int reset) {
     sa->disp = al_create_display(dw, dh);
     if (! sa->disp)
         goto fatal;
+
+    dim[0] = al_get_display_width(sa->disp);
+    dim[1] = al_get_display_height(sa->disp);
 
     al_set_window_title(sa->disp, "Ultima IV");  // configService->gameName()
     //al_set_display_icon(sa->disp, ALLEGRO_BITMAP*);  LoadBMP(ICON_FILE));
