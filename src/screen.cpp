@@ -534,6 +534,7 @@ raster_update:
 
         {
         SpriteRenderData rd;
+        const Object* focusObj;
 
         rd.uvTable = shapes->tileTexCoord;
         rd.rect[2] = rd.rect[3] = VIEW_TILE_SIZE;
@@ -541,7 +542,7 @@ raster_update:
         rd.cy = coord.y;
         rd.attr = gpu_beginDraw(xu4.gpu);
 
-        map->queryVisible(coord, VIEWPORT_W / 2, drawSprite, &rd);
+        map->queryVisible(coord, VIEWPORT_W / 2, drawSprite, &rd, &focusObj);
 
         const uint8_t* lineOfSight = xu4.screen->screenLos;
         Coords bpos;
@@ -554,6 +555,13 @@ raster_update:
                     bpos.x = startX + x;
                     drawSprite(&bpos, vidBlack, &rd);
                 }
+            }
+        }
+
+        if (focusObj) {
+            if ((screenState()->currentCycle * 4 / SCR_CYCLE_PER_SECOND) % 2) {
+                const Coords& floc = focusObj->getCoords();
+                drawSprite(&floc, shapes->subImageCount, &rd);
             }
         }
 
