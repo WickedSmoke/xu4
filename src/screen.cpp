@@ -30,6 +30,7 @@
 
 #ifdef USE_GL
 #include "gpu.h"
+#define GPU_RENDER
 #endif
 
 #ifdef IOS
@@ -55,7 +56,14 @@ struct Screen {
     int cursorStatus;
     int cursorEnabled;
     int needPrompt;
+#ifdef GPU_RENDER
+    int mapId;          // Tracks map changes.
+    int blockX;         // Tracks changes to view point.
+    int blockY;
+    BlockingGroups blockingGroups;
+#else
     uint8_t blockingGrid[VIEWPORT_W * VIEWPORT_H];
+#endif
     uint8_t screenLos[VIEWPORT_W * VIEWPORT_H];
 
     Screen() {
@@ -81,7 +89,9 @@ struct Screen {
 };
 
 static void screenLoadLayoutsFromConf(Screen*);
+#ifndef GPU_RENDER
 static void screenFindLineOfSight();
+#endif
 
 static const int BufferSize = 1024;
 
@@ -117,6 +127,9 @@ static void initDungeonTileChars(std::map<string, int>& dungeonTileChars) {
 }
 
 static void screenInit_data(Screen* scr, Settings& settings) {
+    scr->mapId = -1;
+    scr->blockX = scr->blockY = -1;
+
     scr->filterScaler = scalerGet(settings.filter);
     if (! scr->filterScaler)
         errorFatal("Invalid filter %d", settings.filter);
@@ -450,8 +463,6 @@ bool screenTileUpdate(TileView *view, const Coords &coords)
     return false;
 }
 
-//#define GPU_RENDER
-
 #ifdef GPU_RENDER
 struct SpriteRenderData {
     float* attr;
@@ -509,6 +520,8 @@ raster_update:
     }
     else if (showmap) {
         ImageInfo* shapes = xu4.imageMgr->get(BKGD_SHAPES);
+        Screen* sp = xu4.screen;
+        BlockingGroups* blocks = NULL;
         const MapCoords& coord = loc->coords;   // Center of view.
 
         screenUpdateCursor();
@@ -518,6 +531,27 @@ raster_update:
         gpu_viewport(0, 0, xu4.screen->width, xu4.screen->height);
         gpu_background(xu4.gpu, NULL, xu4.screenImage);
 
+        if (sp->mapId != map->id) {
+            sp->mapId = map->id;
+            sp->blockX = -1;
+            gpu_resetMap(xu4.gpu, map);
+        }
+
+        if ((map->flags & NO_LINE_OF_SIGHT) == 0) {
+            // Remake blocking groups if the view has moved.
+            if (sp->blockX != coord.x || sp->blockY != coord.y) {
+                sp->blockX = coord.x;
+                sp->blockY = coord.y;
+                blocks = &sp->blockingGroups;
+                map->queryBlocking(blocks,
+                                   coord.x - VIEWPORT_W / 2,
+                                   coord.y - VIEWPORT_H / 2,
+                                   VIEWPORT_W, VIEWPORT_H);
+                //printf("KR groups %d,%d,%d\n",
+                //       blocks->left, blocks->center, blocks->right);
+            }
+        }
+
 #if 0
         // Unscaled pixel rect. on screen.
         printf( "KR view %d,%d %d,%d\n",
@@ -525,14 +559,8 @@ raster_update:
 #endif
         const int* vrect = view->screenRect;
         gpu_viewport(vrect[0], vrect[1], vrect[2], vrect[3]);
-        gpu_drawMap(xu4.gpu, map, shapes->tileTexCoord,
+        gpu_drawMap(xu4.gpu, map, shapes->tileTexCoord, blocks,
                     coord.x, coord.y, VIEWPORT_W / 2);
-
-        int startX = coord.x - VIEWPORT_W / 2;
-        int startY = coord.y - VIEWPORT_H / 2;
-        map->queryBlocking(startX, startY,
-                           xu4.screen->blockingGrid, VIEWPORT_W, VIEWPORT_H);
-        screenFindLineOfSight();
 
         {
         SpriteRenderData rd;
@@ -545,20 +573,6 @@ raster_update:
         rd.attr = gpu_beginDraw(xu4.gpu);
 
         map->queryVisible(coord, VIEWPORT_W / 2, drawSprite, &rd, &focusObj);
-
-        const uint8_t* lineOfSight = xu4.screen->screenLos;
-        Coords bpos;
-        int x, y;
-        VisualId vidBlack = map->tileset->getByName(Tile::sym.black)->vid;
-        for (y = 0; y < VIEWPORT_H; y++) {
-            bpos.y = startY + y;
-            for (x = 0; x < VIEWPORT_W; x++) {
-                if (! (*lineOfSight++)) {
-                    bpos.x = startX + x;
-                    drawSprite(&bpos, vidBlack, &rd);
-                }
-            }
-        }
 
         if (focusObj) {
             if ((screenState()->currentCycle * 4 / SCR_CYCLE_PER_SECOND) % 2) {
@@ -793,6 +807,7 @@ void screenMakeDungeonView() {
                                               VIEWPORT_W, VIEWPORT_H);
 }
 
+#ifndef GPU_RENDER
 #define BLOCKING(x,y)   blocking[(y) * VIEWPORT_W + (x)]
 #define LOS(x,y)        lineOfSight[(y) * VIEWPORT_W + (x)]
 
@@ -1141,6 +1156,7 @@ static void screenFindLineOfSight() {
         CPU_END()
     }
 }
+#endif
 
 /**
  * Generates terms a and b for equation "ax + b = y" that defines the

@@ -122,6 +122,10 @@ void screenInit_sys(const Settings* settings, int* dim, int reset) {
         dflags |= ALLEGRO_FULLSCREEN;
     al_set_new_display_flags(dflags);
 
+#ifdef USE_GL
+    al_set_new_display_option(ALLEGRO_ALPHA_SIZE, 8, ALLEGRO_REQUIRE);
+#endif
+
     sa->disp = al_create_display(dw, dh);
     if (! sa->disp)
         goto fatal;
@@ -318,6 +322,7 @@ static void updateDisplay(int x, int y, int w, int h) {
 void screenSwapBuffers() {
 #ifdef USE_GL
     CPU_START()
+#define GPU_RENDER
 #ifndef GPU_RENDER
     const ScreenAllegro* sa = SA;
     gpu_viewport(0, 0, al_get_display_width(sa->disp),
