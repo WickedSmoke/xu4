@@ -2933,6 +2933,8 @@ void GameController::timerFired() {
         }
 
         updateMoons(true);
+        anim_advance(&xu4.eventHandler->flourishAnim,
+                     float(eventTimerGranularity) * 0.001f);
         screenCycle();
         gameUpdateScreen();
 
