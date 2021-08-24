@@ -9,6 +9,7 @@
 #include "context.h"
 #include "creature.h"
 #include "error.h"
+#include "event.h"
 #include "image.h"
 #include "imagemgr.h"
 #include "location.h"
@@ -254,6 +255,15 @@ int Tile::frameForDirection(Direction d) const {
     return -1;
 }
 
+uint16_t Tile::startFrameAnim() const {
+    if (frames && anim && anim->transforms[0]->animType == ATYPE_FRAME) {
+        //printf( "KR anim %d,%d\n", frames, anim->random );
+        return anim_startCycleRandomI(&xu4.eventHandler->flourishAnim,
+                                      0.25, ANIM_FOREVER, 0,
+                                      0, frames, anim->random);
+    }
+    return ANIM_INVALID;
+}
 
 const Tile *MapTile::getTileType() const {
     return Tileset::findTileById(id);

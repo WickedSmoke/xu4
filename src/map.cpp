@@ -11,6 +11,7 @@
 #include "context.h"
 #include "debug.h"
 #include "direction.h"
+#include "event.h"
 #include "location.h"
 #include "movement.h"
 #include "object.h"
@@ -386,6 +387,7 @@ void Map::queryVisible(const Coords& center, int radius,
         func(cp, vid, user);
     }
 
+    const Animator* animator = &xu4.eventHandler->flourishAnim;
     ObjectDeque::const_iterator it;
     for(it = objects.begin(); it != objects.end(); it++) {
         const Object* obj = *it;
@@ -397,6 +399,8 @@ void Map::queryVisible(const Coords& center, int radius,
         //printf("KR obj %d %d %d,%d\n",
         //        obj->tile.id, obj->tile.frame, cp->x, cp->y);
         vid = tiles[obj->tile.id]->vid;
+        if (obj->animId != ANIM_INVALID)
+            vid += anim_valueI(animator, obj->animId);
         func(cp, vid, user);
     }
 
@@ -571,12 +575,18 @@ Creature *Map::addCreature(const Creature *creature, Coords coords) {
     m->setCoords(coords);
     m->setMap(this);
 
+    /* Setup frame animation */
+    const Tile* tile = tileset->get(m->getTile().id);
+    if (tile)
+        m->animId = tile->startFrameAnim();
+
     /* initialize the creature before placing it */
     if (m->wanders())
         m->setMovementBehavior(MOVEMENT_WANDER);
     else if (m->isStationary())
         m->setMovementBehavior(MOVEMENT_FIXED);
-    else m->setMovementBehavior(MOVEMENT_ATTACK_AVATAR);
+    else
+        m->setMovementBehavior(MOVEMENT_ATTACK_AVATAR);
 
     /* hide camouflaged creatures from view during combat */
     if (m->camouflages() && (type == COMBAT))
