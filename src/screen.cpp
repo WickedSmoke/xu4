@@ -154,7 +154,7 @@ static void screenInit_data(Screen* scr, Settings& settings) {
 
 #ifdef USE_GL
     ImageInfo* shapes = xu4.imageMgr->get(BKGD_SHAPES);
-    gpu_setTilesTexture(xu4.gpu, shapes->tex);
+    gpu_setTilesTexture(xu4.gpu, shapes->tex, shapes->tileTexCoord[3]);
 #endif
 
     assert(scr->state.tileanims == NULL);

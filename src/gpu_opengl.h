@@ -49,6 +49,7 @@ struct OpenGLResources {
     GLint  slocTrans;
     GLint  slocCmap;
     GLint  slocTint;
+    GLint  slocScroll;
 
     GLuint shadeWorld;
     GLint  worldTrans;
@@ -56,6 +57,8 @@ struct OpenGLResources {
     GLint  worldShadowMap;
 
     GLuint tilesTex;            // Managed by user.
+    float  tilesVDim;
+    float  time;
     int    dbuf;
     float* dptr;
     int    blockCount;
