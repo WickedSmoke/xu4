@@ -6,6 +6,7 @@
 
 PREFIX ?= /usr/local
 UI ?= allegro
+GPU ?= false
 
 bindir=$(PREFIX)/bin
 libdir=$(PREFIX)/lib
@@ -19,11 +20,19 @@ UILIBS=-lallegro_acodec -lallegro_audio -lallegro
 UIFLAGS=
 endif
 
+ifeq ($(GPU),true)
+	UIFLAGS+=-Isupport -DUSE_GL -DGPU_RENDER -DUSE_BORON -DCONF_MODULE
+	UILIBS+=-lboron -lGL
+else
+	UIFLAGS+=$(shell xml2-config --cflags)
+	UILIBS+=$(shell xml2-config --libs)
+endif
+
 FEATURES=-DHAVE_BACKTRACE=1 -DHAVE_VARIADIC_MACROS=1
 DEBUGCXXFLAGS=-rdynamic -g
-CXXFLAGS=$(FEATURES) -Wall -I. $(UIFLAGS) $(shell xml2-config --cflags) -DICON_FILE=\"$(datadir)/pixmaps/u4.bmp\" -DVERSION=\"$(VERSION)\" $(DEBUGCXXFLAGS)
+CXXFLAGS=$(FEATURES) -Wall -I. $(UIFLAGS) -DICON_FILE=\"$(datadir)/pixmaps/u4.bmp\" -DVERSION=\"$(VERSION)\" $(DEBUGCXXFLAGS)
 CFLAGS=$(CXXFLAGS)
-LIBS=$(UILIBS) $(shell xml2-config --libs) -lpng -lz
+LIBS=$(UILIBS) -lpng -lz
 INSTALL=install
 
 ifeq ($(STATIC_GCC_LIBS),true)

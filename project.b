@@ -2,6 +2,7 @@ options [
 	os_api: 'allegro	"Platform API ('allegro 'sdl)"
 	use_gl: false
 	use_boron: true
+	gpu_render: true
 	make_util: true
 ]
 
@@ -68,6 +69,7 @@ exe %u4 [
 		cflags "-Wno-unused-parameter"
 		libs [%png %z]
 		if use_gl [
+				if gpu_render [cflags "-DGPU_RENDER"]
 				cflags "-DUSE_GL"
 				libs %GL
 		]
