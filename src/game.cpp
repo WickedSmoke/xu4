@@ -55,22 +55,10 @@
 #include "ios_helpers.h"
 #endif
 
-using namespace std;
-
 /*-----------------*/
 /* Functions BEGIN */
 
-/* main game functions */
-void gameAdvanceLevel(PartyMember *player);
-void gameInnHandler(void);
-void gameLostEighth(Virtue virtue);
-void gamePartyStarving(void);
-time_t gameTimeSinceLastCommand(void);
-
 /* spell functions */
-void gameCastSpell(unsigned int spell, int caster, int param);
-bool gameSpellMixHowMany(int spell, int num, Ingredients *ingredients);
-
 void mixReagents();
 bool mixReagentsForSpellU4(int spell);
 bool mixReagentsForSpellU5(int spell);
@@ -101,7 +89,6 @@ void gameCreatureAttack(Creature *obj);
 /* Functions END */
 /*---------------*/
 
-//extern Object *party[8];
 Context *c = NULL;
 
 MouseArea mouseAreas[] = {
@@ -2907,6 +2894,10 @@ void ztatsFor(int player) {
     ctrl.waitFor();
 }
 
+static time_t gameTimeSinceLastCommand() {
+    return time(NULL) - c->lastCommandTime;
+}
+
 /**
  * This function is called every quarter second.
  */
@@ -3135,10 +3126,6 @@ void gameFixupObjects(Map *map, const SaveGameMonsterRecord* table) {
                 map->addObject(tile, oldTile, coords);
         }
     }
-}
-
-time_t gameTimeSinceLastCommand() {
-    return time(NULL) - c->lastCommandTime;
 }
 
 /**
