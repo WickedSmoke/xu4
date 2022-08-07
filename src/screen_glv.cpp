@@ -26,8 +26,15 @@ struct ScreenGLView {
     GLView* view;
     Controller* waitCon;
     updateScreenCallback update;
+#ifdef ANDROID
+    uint16_t dpadState;
+    uint16_t dpadStateDrawn;
+    float dpadX;
+    float dpadY;
+#else
     int currentCursor;
     bool cursorShown;
+#endif
     OpenGLResources gpu;
 };
 
@@ -191,8 +198,12 @@ static void eventHandler(GLView* view, GLViewEvent* event)
 
 #ifdef ANDROID
         case GLV_EVENT_KEY_UP:
-            if (event->code == KEY_Back)
-                xu4.eventHandler->quitGame();
+            if (event->code == KEY_Back) {
+                //xu4.eventHandler->quitGame();
+                if (! sa->waitCon)
+                    controller = xu4.eventHandler->getController();
+                controller->notifyKeyPressed(U4_ESC);
+            }
             break;
 #endif
 
@@ -230,8 +241,8 @@ mouse_pos:
         case GLV_EVENT_CLOSE:
             xu4.eventHandler->quitGame();
             break;
-/*
 #ifdef ANDROID
+/*
         case GLV_EVENT_APP:
             switch (event->code) {
                 case 1:             // APP_CMD_INIT_WINDOW
@@ -241,8 +252,34 @@ mouse_pos:
                     break;
             }
             break;
-#endif
 */
+        case GLV_EVENT_DPAD:
+        {
+            int dstate = event->code;
+            sa->dpadState = dstate;
+            //fprintf(stderr, "DPAD 0x%x %d,%d\n", dstate, event->x, event->y);
+            if (dstate & GLV_DPAD_ACTIVE) {
+                int edgeDown = (dstate ^ event->state) & dstate;
+
+                sa->dpadX = event->x;
+                sa->dpadY = event->y;
+
+                if (! sa->waitCon)
+                    controller = xu4.eventHandler->getController();
+
+                if (edgeDown & GLV_DPAD_UP)
+                    controller->notifyKeyPressed(U4_UP);
+                else if (edgeDown & GLV_DPAD_DOWN)
+                    controller->notifyKeyPressed(U4_DOWN);
+
+                if (edgeDown & GLV_DPAD_LEFT)
+                    controller->notifyKeyPressed(U4_LEFT);
+                else if (edgeDown & GLV_DPAD_RIGHT)
+                    controller->notifyKeyPressed(U4_RIGHT);
+            }
+            break;
+        }
+#endif
         default:
             break;
     }
@@ -333,6 +370,18 @@ void screenInit_sys(const Settings* settings, ScreenState* state, int reset) {
     /* enable or disable the mouse cursor */
     screenShowMouseCursor(settings->mouseOptions.enabled);
 
+#ifdef ANDROID
+    {
+    float rect[4];
+    float h = (float) sa->view->height;
+    rect[0] = 0.0f;
+    rect[2] = 0.3333f * sa->view->width;
+    rect[1] = 0.5f * h;
+    rect[3] = h;
+    glv_setDPadRect(sa->view, 0, rect);
+    }
+#endif
+
     gpuError = gpu_init(&sa->gpu, dw, dh, scale, settings->filter);
     if (gpuError)
         errorFatal("Unable to obtain OpenGL resource (%s)", gpuError);
@@ -409,6 +458,7 @@ void screenSetMouseCursor(MouseCursor cursor) {
 }
 
 void screenShowMouseCursor(bool visible) {
+#ifndef ANDROID
     ScreenGLView* sa = SA;
 
     if (visible) {
@@ -420,7 +470,77 @@ void screenShowMouseCursor(bool visible) {
         glv_showCursor(sa->view, 0);
     }
     sa->cursorShown = visible;
+#endif
 }
+
+#ifdef ANDROID
+#include "gpu.h"
+#define SCREEN_FONT_SYMBOL  2
+
+void screenRenderTouchControls() {
+    const ScreenState* ss = screenState();
+    ScreenGLView* sa = SA;
+    if (sa->dpadStateDrawn != sa->dpadState) {
+        sa->dpadStateDrawn = sa->dpadState;
+
+        if (sa->dpadState) {
+            float* attr = gpu_beginTris(xu4.gpu, GPU_DLIST_HUD);
+#if 0
+            float rect[4];
+            float uvs[4];
+
+            rect[0] = sa->dpadX - 60.0f;
+            rect[1] = sa->dpadY - 60.0f;
+            rect[2] = 120.0f;
+            rect[3] = 120.0f;
+
+            gpu_guiClutUV(xu4.gpu, uvs, 45 + 128);
+            uvs[2] = uvs[0];
+            uvs[3] = uvs[1];
+
+            attr = gpu_emitQuad(attr, rect, uvs);
+#else
+            const float size = 100.0f;
+            const float sizeOff = size * 0.8f;
+            static const float dirOffset[8] = {
+                0.0f,  sizeOff,
+                0.0f, -sizeOff,
+               -sizeOff, 0.0f,
+                sizeOff, 0.0f
+            };
+            const TxfGlyph* glyph;
+            const TxfHeader* font = ss->fontTable[SCREEN_FONT_SYMBOL];
+            float prScale = font->pixelRange / font->fontSize;
+            float origX = sa->dpadX - ss->aspectX;
+            float origY = (ss->displayH - sa->dpadY) - ss->aspectY;
+            float colorIndex = 45 + 128;
+            const float* doff = dirOffset;
+
+
+            glyph = txf_glyph(font, 's');
+            txf_genGlyphCT(glyph, origX, origY,
+                           size, prScale, colorIndex,
+                           attr + 3, attr, ATTR_COUNT);
+            attr += 6 * ATTR_COUNT;
+
+            glyph = txf_glyph(font, 'o');
+            for (int dir = GLV_DPAD_UP; dir < 0x40; dir <<= 1, doff += 2) {
+                if (sa->dpadState & dir) {
+                    txf_genGlyphCT(glyph, origX + doff[0], origY + doff[1],
+                                   size, prScale, colorIndex,
+                                   attr + 3, attr, ATTR_COUNT);
+                    attr += 6 * ATTR_COUNT;
+                }
+            }
+#endif
+            gpu_endTris(xu4.gpu, GPU_DLIST_HUD, attr);
+        } else
+            gpu_clearTris(xu4.gpu, GPU_DLIST_HUD);
+    }
+
+    gpu_drawGui(xu4.gpu, GPU_DLIST_HUD);
+}
+#endif
 
 /*
  * \param waitCon  Input events are passed to this controller if not NULL.

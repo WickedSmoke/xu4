@@ -56,6 +56,12 @@ void txf_begin(TxfDrawState* ds, int fontN, float pointSize, float x, float y);
 void txf_setFontSize(TxfDrawState* ds, float pointSize);
 int  txf_genText(TxfDrawState* ds, float* uvs, float* vertex, int stride,
                  const uint8_t* it, unsigned int len);
+
+const TxfGlyph* txf_glyph(const TxfHeader*, int c);
+void  txf_genGlyphCT(const TxfGlyph*, float x, float y,
+                     float psize, float prScale, float colorIndex,
+                     float* uvs, float* vertex, int stride);
+
 float txf_emWidth(const TxfHeader*, const uint8_t* it, unsigned int len);
 void  txf_emSize(const TxfHeader*, const uint8_t* it, unsigned int len,
                  float* size);

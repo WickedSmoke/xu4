@@ -238,6 +238,58 @@ int txf_genText(TxfDrawState* ds, float* uvs, float* vertex, int stride,
     return drawn;
 }
 
+/*
+  Draw a single glyph centered on a position using two triangles.
+*/
+void txf_genGlyphCT(const TxfGlyph* tgi, float x, float y,
+                    float psize, float prScale, float colorIndex,
+                    float* uvs, float* vertex, int stride)
+{
+    float gx, gy;       // left, bottom
+    float gr, gt;       // right, top
+    float min_s, max_s;
+    float min_t, max_t;
+    float half;
+    float pixelRange = psize * prScale;
+
+    half = (tgi->emRect[2] - tgi->emRect[0]) * 0.5f * psize;
+    gx = x - half;
+    gr = x + half;
+
+    half = (tgi->emRect[3] - tgi->emRect[1]) * 0.5f * psize;
+    gy = y - half;
+    gt = y + half;
+
+    min_s = tgi->tcRect[0];
+    max_s = tgi->tcRect[2];
+#if 0   // IMAGE_BOTTOM_AT_0
+    min_t = tgi->tcRect[1];
+    max_t = tgi->tcRect[3];
+#else
+    min_t = 1.0f - tgi->tcRect[1];
+    max_t = 1.0f - tgi->tcRect[3];
+#endif
+
+#define GLYPH_ATTR_C(s,t,x,y) \
+    uvs[0] = s; \
+    uvs[1] = t; \
+    uvs[2] = pixelRange; \
+    uvs[3] = colorIndex; \
+    uvs += stride; \
+    vertex[0] = x; \
+    vertex[1] = y; \
+    vertex[2] = 0.0f; \
+    vertex += stride
+
+    GLYPH_ATTR_C( min_s, min_t, gx, gy );
+    GLYPH_ATTR_C( max_s, min_t, gr, gy );
+    GLYPH_ATTR_C( max_s, max_t, gr, gt );
+
+    GLYPH_ATTR_C( max_s, max_t, gr, gt );
+    GLYPH_ATTR_C( min_s, max_t, gx, gt );
+    GLYPH_ATTR_C( min_s, min_t, gx, gy );
+}
+
 static float txf_width2(const TxfHeader* tf, const uint8_t* it,
                         const uint8_t* end, const uint8_t** sol)
 {

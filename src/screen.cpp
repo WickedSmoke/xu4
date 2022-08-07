@@ -871,6 +871,11 @@ void screenRender() {
             rl->func(ss, rl->data);
     }
     }
+
+#ifdef ANDROID
+    extern void screenRenderTouchControls();
+    screenRenderTouchControls();
+#endif
 }
 
 void screenDrawImageInMapArea(Symbol name) {
