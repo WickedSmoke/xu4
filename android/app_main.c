@@ -206,7 +206,7 @@ extern int main(int, char**);
 
 jmp_buf gMainJump;
 
-static char* dummyArgs[1] = { "xu4" };
+static char* dummyArgs[2] = { "xu4", "-q" };
 
 void android_main( struct android_app* app )
 {
@@ -220,7 +220,7 @@ void android_main( struct android_app* app )
 
     extractModules(app);
 
-    main(1, dummyArgs);
+    main(2, dummyArgs);
 
     // Call finish to get the application window to close.
     ANativeActivity_finish( app->activity );
