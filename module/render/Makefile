@@ -18,4 +18,5 @@ JOPT=-json $(ODIR)/cfont.json
 all: $(ODIR)/cfont.png
 
 $(ODIR)/cfont.png:
-	msdf-atlas-gen -size 24 -pxrange 4 -coloringstrategy distance -scanline $(COPT) -and $(MOPT) -and $(AOPT) -and $(BOPT) -charset font/cs-ascii -and $(SOPT) -type mtsdf -format png -imageout $@ -txf $(ODIR)/cfont.txf -dimensions 512 300
+	msdf-atlas-gen -size 24 -pxrange 4 -coloringstrategy distance -scanline $(COPT) -and $(MOPT) -and $(AOPT) -and $(BOPT) -charset font/cs-ascii -and $(SOPT) -type mtsdf -format png -imageout /tmp/cfont.png -txf $(ODIR)/cfont.txf -dimensions 512 300
+	zopflipng /tmp/cfont.png $@
