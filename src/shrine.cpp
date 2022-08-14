@@ -2,8 +2,6 @@
  * shrine.cpp
  */
 
-#include <string>
-
 #include "shrine.h"
 
 #include "game.h"
@@ -33,10 +31,10 @@ bool shrineCanEnter(const Portal *p) {
 }
 
 const char* Shrine::getName() const {
-    std::string& str = c->shrineState.shrineName;
-    str = "Shrine of ";
-    str += getVirtueName(virtue);
-    return str.c_str();
+    char* str = c->shrineState.shrineName;
+    strcpy(str, "Shrine of ");
+    strcat(str, getVirtueName(virtue));
+    return str;
 }
 
 const char* Shrine::mantraStr() const {

@@ -54,7 +54,7 @@ void TileAnimTransform::draw(Image* dest, const Tile* tile,
     case ATYPE_FRAME:
     {
         int frame;
-        if (xu4.stage == StagePlay) {
+        if (xu4._stage == STAGE_PLAY) {
             // flourishAnim drives Object frame animation.
             frame = mapTile.frame;
         } else {

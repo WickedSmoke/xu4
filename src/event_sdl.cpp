@@ -20,7 +20,7 @@ static void handleActiveEvent(const SDL_Event &event, updateScreenCallback updat
     }
 }
 
-static void handleKeyDownEvent(const SDL_Event &event, Controller *controller, updateScreenCallback updateScreen) {
+static int translateKey(const SDL_Event &event) {
     int key;
 
     if (event.key.keysym.unicode != 0)
@@ -68,32 +68,32 @@ static void handleKeyDownEvent(const SDL_Event &event, Controller *controller, u
                event.key.keysym.mod,
                key);
 
-    /* handle the keypress */
-    if (controller->notifyKeyPressed(key)) {
-        if (updateScreen)
-            (*updateScreen)();
-    }
+    return key;
 }
 
-/*
- * \param waitCon  Input events are passed to this controller if not NULL.
- *                 Otherwise EventHandler::getController() (the currently
- *                 active one) will be used.
- */
-void EventHandler::handleInputEvents(Controller* waitCon,
-                                     updateScreenCallback update) {
+void screenHandleEvents(updateScreenCallback update) {
     SDL_Event event;
     InputEvent ie;
-    Controller* controller = waitCon;
+    Stage* st = stage_current();
+    if (! st)
+        return;
 
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
         default:
             break;
+
         case SDL_KEYDOWN:
-            if (! waitCon)
-                controller = getController();
-            handleKeyDownEvent(event, controller, update);
+        {
+            ie.type = IE_KEY_PRESS;
+            ie.n = translateKey(event);
+            int processed = st->dispatch(st, &ie);
+            if (! processed)
+                processed = EventHandler::globalKeyHandler(ie.n);
+
+            if (processed && update)
+                (*update)();
+        }
             break;
 
         case SDL_MOUSEBUTTONDOWN:
@@ -104,22 +104,21 @@ mouse_button:
             ie.y = event.button.y;
 mouse_event:
             ie.state = 0;
-            if (! waitCon)
-                controller = getController();
-            controller->inputEvent(&ie);
-            break;
+            st->dispatch(st, &ie);
             break;
 
         case SDL_MOUSEBUTTONUP:
             ie.type = IE_MOUSE_RELEASE;
             goto mouse_button;
 
+        /*
         case SDL_MOUSEWHEEL:
             ie.type = IE_MOUSE_WHEEL;
             ie.n = 0;
             ie.x = event.wheel.x;
             ie.y = event.wheel.y;
             goto mouse_event;
+        */
 
         case SDL_MOUSEMOTION:
             ie.type = IE_MOUSE_MOVE;
@@ -129,19 +128,12 @@ mouse_event:
             goto mouse_event;
 
         case SDL_ACTIVEEVENT:
-            handleActiveEvent(event, updateScreen);
+            handleActiveEvent(event, update);
             break;
 
         case SDL_QUIT:
-            quitGame();
+            stage_exit();
             break;
         }
     }
-}
-
-/**
- * Sets the key-repeat characteristics of the keyboard.
- */
-int EventHandler::setKeyRepeat(int delay, int interval) {
-    return SDL_EnableKeyRepeat(delay, interval);
 }

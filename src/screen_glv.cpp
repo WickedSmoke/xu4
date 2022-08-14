@@ -24,7 +24,6 @@
 
 struct ScreenGLView {
     GLView* view;
-    Controller* waitCon;
     updateScreenCallback update;
     int currentCursor;
     OpenGLResources gpu;
@@ -112,9 +111,7 @@ static void _setX11Icon(GLView* view, const char* filename) {
 #include "gpu_opengl.cpp"
 
 
-static void handleKeyDownEvent(const GLViewEvent* event,
-                               Controller *controller,
-                               updateScreenCallback updateScreen) {
+static int translateKey(const GLViewEvent* event) {
     int key;
     int keycode = event->code;
 
@@ -166,32 +163,38 @@ static void handleKeyDownEvent(const GLViewEvent* event,
                event->state,
                key);
     }
-
-    /* handle the keypress */
-    if (controller->notifyKeyPressed(key)) {
-        if (updateScreen)
-            (*updateScreen)();
-    }
+    return key;
 }
 
 static void eventHandler(GLView* view, GLViewEvent* event)
 {
     InputEvent ie;
-    ScreenGLView* sa = (ScreenGLView*) view->user;
-    Controller* controller = sa->waitCon;
+    Stage* st = stage_current();
+    if (! st)
+        return;
 
     switch (event->type)
     {
         case GLV_EVENT_KEY_DOWN:
-            if (! sa->waitCon)
-                controller = xu4.eventHandler->getController();
-            handleKeyDownEvent(event, controller, sa->update);
+        {
+            ie.type = IE_KEY_PRESS;
+            ie.n = translateKey(event);
+            int processed = st->dispatch(st, &ie);
+            if (! processed)
+                processed = EventHandler::globalKeyHandler(ie.n);
+
+            if (processed) {
+                ScreenGLView* sa = (ScreenGLView*) view->user;
+                if (sa->update)
+                    (*sa->update)();
+            }
+        }
             break;
 
 #ifdef ANDROID
         case GLV_EVENT_KEY_UP:
             if (event->code == KEY_Back)
-                xu4.eventHandler->quitGame();
+                stage_exit();
             break;
 #endif
 
@@ -204,9 +207,8 @@ mouse_pos:
             ie.x = event->x;
             ie.y = event->y;
             ie.state = 0;
-            if (! sa->waitCon)
-                controller = xu4.eventHandler->getController();
-            controller->inputEvent(&ie);
+
+            st->dispatch(st, &ie);
             break;
 
         case GLV_EVENT_BUTTON_UP:
@@ -235,7 +237,7 @@ mouse_pos:
         */
 
         case GLV_EVENT_CLOSE:
-            xu4.eventHandler->quitGame();
+            stage_exit();
             break;
 /*
 #ifdef ANDROID
@@ -425,30 +427,8 @@ void screenShowMouseCursor(bool visible) {
     glv_showCursor(SA->view, visible ? 1 : 0);
 }
 
-/*
- * \param waitCon  Input events are passed to this controller if not NULL.
- *                 Otherwise EventHandler::getController() (the currently
- *                 active one) will be used.
- */
-void EventHandler::handleInputEvents(Controller* waitCon,
-                                     updateScreenCallback update) {
+void screenHandleEvents(updateScreenCallback update) {
     ScreenGLView* sa = SA;
-    Controller* prevCon = sa->waitCon;
-    updateScreenCallback prevUpdate = sa->update;
-
-    sa->waitCon = waitCon;
-    sa->update  = update;
-
+    sa->update = update;
     glv_handleEvents(sa->view);
-
-    sa->waitCon = prevCon;
-    sa->update  = prevUpdate;
-}
-
-/**
- * Sets the key-repeat characteristics of the keyboard.
- */
-int EventHandler::setKeyRepeat(int delay, int interval) {
-    //return SDL_EnableKeyRepeat(delay, interval);
-    return 0;
 }

@@ -82,7 +82,7 @@ static void runTalkDialogue(TalkFunc func, TalkState* ts)
         goto tell_name;
     }
 
-    while (xu4.stage == StagePlay) {
+    while (stage_current()) {
         message("\nYour Interest:\n");
         input = gameGetInput(16);
         screenCrLf();

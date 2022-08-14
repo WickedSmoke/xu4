@@ -7,25 +7,22 @@
 
 #include "combat.h"
 
-/* Number of moves before camping will heal the party */
-#define CAMP_HEAL_INTERVAL  100
-
 class CampController : public CombatController {
 public:
     CampController();
-    virtual void beginCombat();
+    virtual void beginCombat(Stage*);
     virtual void endCombat(bool adjustKarma);
+
+    void wakeUp();
 };
 
 class InnController : public CombatController {
 public:
     InnController();
-    virtual void beginCombat();
     virtual void awardLoot();
 
-private:
     void maybeMeetIsaac();
-    void maybeAmbush();
+    bool maybeAmbush();
 };
 
 #endif

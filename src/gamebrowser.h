@@ -1,4 +1,5 @@
-#include "controller.h"
+// gamebrowser.h
+
 #include "gui.h"
 
 struct ModuleInfo {
@@ -12,15 +13,11 @@ struct ModuleInfo {
 struct TxfHeader;
 struct ScreenState;
 
-class GameBrowser : public Controller {
+class GameBrowser {
 public:
     GameBrowser();
-
-    /* controller functions */
-    virtual bool present();
-    virtual void conclude();
-    virtual bool keyPressed(int key);
-    virtual bool inputEvent(const InputEvent*);
+    ~GameBrowser();
+    bool present();
 
     enum Widgets {
         WI_LIST,
@@ -31,6 +28,8 @@ public:
     };
 
 private:
+    bool keyPressed(Stage*, int key);
+
     StringTable modFiles;
     StringTable modFormat;
     std::vector<ModuleInfo> infoList;
@@ -46,4 +45,6 @@ private:
 
     static void renderBrowser(ScreenState* ss, void* data);
     static void displayReset(int, void*, void*);
+
+    friend int browser_dispatch(Stage*, const InputEvent*);
 };

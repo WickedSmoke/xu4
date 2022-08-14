@@ -6,11 +6,8 @@
 #define EVENT_H
 
 #include <cstddef>
-#include <list>
-#include <vector>
 
 #include "anim.h"
-#include "controller.h"
 #include "types.h"
 
 #define U4_UP           '['
@@ -33,13 +30,17 @@
 #define U4_KEYPAD_ENTER 0x158
 
 enum InputEventType {
+    IE_CYCLE_TIMER,
+    IE_MSEC_TIMER,
+    IE_FRAME_UPDATE,
+    IE_KEY_PRESS,
     IE_MOUSE_MOVE,
     IE_MOUSE_PRESS,
     IE_MOUSE_RELEASE,
     IE_MOUSE_WHEEL
 };
 
-enum ControllerMouseButton {
+enum MouseButton {
     CMOUSE_LEFT = 1,
     CMOUSE_MIDDLE,
     CMOUSE_RIGHT
@@ -47,149 +48,73 @@ enum ControllerMouseButton {
 
 struct InputEvent {
     uint16_t type;      // InputEventType
-    uint16_t n;         // Button id
+    uint16_t n;         // Button id or Key
     uint16_t state;     // Button mask
     int16_t  x, y;      // Axis value
 };
 
 //----------------------------------------------------------------------------
 
-/**
- * A class for handling timed events.
- */
-class TimedEvent {
-public:
-    /* Typedefs */
-    typedef void (*Callback)(void *);
-
-    /* Constructors */
-    TimedEvent(Callback callback, int interval, void *data = NULL);
-
-    /* Member functions */
-    Callback getCallback() const;
-    void *getData();
-    void tick();
-
-    /* Properties */
-protected:
-    Callback callback;
-    void *data;
-    int interval;
-    int current;
+enum InputResult {
+    INPUT_WAITING,
+    INPUT_DONE,
+    INPUT_CANCEL
 };
 
-#if defined(IOS)
-#ifndef __OBJC__
-typedef void *TimedManagerHelper;
-typedef void *UIEvent;
-#else
-@class TimedManagerHelper;
-@class UIEvent;
-#endif
-#endif
+class TextView;
 
-
-/**
- * A class for managing timed events
- */
-class TimedEventMgr {
-public:
-    typedef std::list<TimedEvent*> List;
-
-    TimedEventMgr() : locked(false) {}
-    ~TimedEventMgr();
-
-    /** Returns true if the event list is locked (in use) */
-    bool isLocked() const { return locked; }
-
-    void add(TimedEvent::Callback callback, int interval, void *data = NULL);
-    List::iterator remove(List::iterator i);
-    void remove(TimedEvent* event);
-    void remove(TimedEvent::Callback callback, void *data = NULL);
-    void tick();
-
-private:
-    /* Properties */
-    bool locked;
-    List events;
-    List deferredRemovals;
+struct InputString {
+    char value[24];
+    int used;
+    int maxlen, screenX, screenY;
+    TextView* view;
+    uint8_t accepted[16];   // Character bitset.
 };
 
-#define FS_SAMPLES  8
+void input_stringInitView(InputString*, int maxlen, TextView *view,
+                          const char *extraChars = NULL);
+int  input_stringDispatch(InputString*, const InputEvent*);
 
-struct FrameSleep {
-    uint32_t frameInterval;     // Milliseconds between display updates.
-    uint32_t realTime;
-    int ftime[FS_SAMPLES];      // Msec elapsed for past frames.
-    int ftimeSum;
-    uint16_t ftimeIndex;
-    uint16_t fsleep;            // Msec to sleep - adjusted slowly.
-};
+int  input_choiceDispatch(const char* choices, const InputEvent*, int* value);
+int  input_anykey(const InputEvent* ev);
+
+//----------------------------------------------------------------------------
 
 typedef void(*updateScreenCallback)(void);
 
-struct _MouseArea;
-class TextView;
+struct MouseArea;
 
 /**
  * A class for handling game events.
  */
 class EventHandler {
 public:
-    /* Constructors */
-    EventHandler(int gameCycleDuration, int frameDuration);
-    ~EventHandler();
+    /* Static functions */
+    static bool globalKeyHandler(int key);
 
-    /* Static user input functions. */
+    /* Blocking user input functions. Calling an input_* function from
+       Stage::dispatch is preferred to avoid recursion of mainLoop(). */
     static int       choosePlayer();
     static int       readAlphaAction(char letter, const char* prompt);
     static char      readChoice(const char* choices);
     static Direction readDir();
     static int       readInt(int maxlen);
     static const char* readString(int maxlen, const char *extraChars = NULL);
-    static const char* readStringView(int maxlen, TextView *view,
-                                      const char *extraChars = NULL);
     static void waitAnyKey();
     static void waitAnyKeyTimeout();
     static bool wait_msecs(unsigned int msecs);
-    static void ignoreInput();
 
-    /* Static functions */
-    static bool timerQueueEmpty();
-    static int setKeyRepeat(int delay, int interval);
-    static bool globalKeyHandler(int key);
-    static bool defaultKeyHandler(int key);
-
-    /* Member functions */
-    void setTimerInterval(int msecs);
-    uint32_t getTimerInterval() const { return timerInterval; }
-    TimedEventMgr* getTimer();
+    /* Constructors */
+    EventHandler(int gameCycleDuration);
+    ~EventHandler();
 
     /* Event functions */
-    bool run();
-    void setScreenUpdate(void (*updateScreen)(void));
+    void setScreenUpdate(updateScreenCallback);
     void togglePause();
-#if defined(IOS)
-    void handleEvent(UIEvent *);
-    static void controllerStopped_helper();
-    updateScreenCallback screenCallback() { return updateScreen; }
-#endif
-
-    /* Controller functions */
-    void runController(Controller*);
-    Controller *pushController(Controller *c);
-    Controller *popController();
-    Controller *getController() const;
-    void setController(Controller *c);
-    void setControllerDone(bool exit = true);
-    bool getControllerDone();
-    void quitGame();
 
     /* Mouse area functions */
-    void pushMouseAreaSet(const _MouseArea *mouseAreas);
-    void popMouseAreaSet();
-    const _MouseArea* getMouseAreaSet() const;
-    const _MouseArea* mouseAreaForPoint(int x, int y) const;
+    const MouseArea* mouseAreaForPoint(const MouseArea* areas, int count,
+                                       int x, int y) const;
 
 #ifdef DEBUG
     bool beginRecording(const char* file, uint32_t seed);
@@ -198,6 +123,7 @@ public:
     int  recordedKey();
     void recordTick() { ++recordClock; }
     uint32_t replay(const char* file);
+    void emitRecordedKeys();
 #endif
 
     void advanceFlourishAnim() {
@@ -208,13 +134,9 @@ public:
     Animator fxAnim;
 
 protected:
-    void handleInputEvents(Controller*, updateScreenCallback);
     bool runPause();
 
-    FrameSleep fs;
     uint32_t timerInterval;     // Milliseconds between timedEvents ticks.
-    uint32_t runTime;
-    int runRecursion;
 #ifdef DEBUG
     int recordFP;
     int recordMode;
@@ -223,11 +145,6 @@ protected:
     uint32_t recordLast;
 #endif
     bool paused;
-    bool controllerDone;
-    bool ended;
-    TimedEventMgr timedEvents;
-    std::vector<Controller *> controllers;
-    std::list<const _MouseArea*> mouseAreaSets;
     updateScreenCallback updateScreen;
     char readStringBuf[33];
 };

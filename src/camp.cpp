@@ -17,15 +17,20 @@
 #include "utils.h"
 #include "xu4.h"
 
+extern int combat_dispatch(Stage*, const InputEvent*);
+
 
 #define CAMP_FADE_OUT_TIME  1500
 #define CAMP_FADE_IN_TIME    500
 #define INN_FADE_OUT_TIME   1000
 #define INN_FADE_IN_TIME    5000
 
+/* Number of moves before camping will heal the party */
+#define CAMP_HEAL_INTERVAL  100
+
 
 CampController::CampController() {
-    /* setup camp (possible, but not for-sure combat situation */
+    /* setup camp for a possible, but not for-sure combat situation */
     MapId id = (c->location->context & CTX_DUNGEON) ? MAP_CAMP_DNG
                                                     : MAP_CAMP_CON;
     map = getCombatMap(xu4.config->map(id));
@@ -33,59 +38,59 @@ CampController::CampController() {
 
     camping = true;
     initCreature(NULL);
+    initAltarRoom();
+
+    if (c->horseSpeed == HORSE_GALLOP)
+        c->horseSpeed = HORSE_WALK;
+
+    // make sure everyone's asleep
+    Party* party = c->party;
+    for (int i = 0; i < party->size(); i++)
+        party->member(i)->putToSleep();
+
+    placePartyMembers();
 }
 
-void CampController::beginCombat() {
-    // make sure everyone's asleep
+void CampController::beginCombat(Stage* st)
+{
+    const Creature *m = Creature::randomAmbushing();
+
+    stage = st;
+
+    musicPlayLocale();
+    screenMessage("Ambushed!\n");
+
+    /* create an ambushing creature (so it leaves a chest) */
+    Location* prev = c->location->prev;
+    setCreature(prev->map->addCreature(m, prev->coords));
+
+    /* fill the creature table with creatures and place them */
+    fillCreatureTable(m);
+    placeCreatures();
+
+    /* creatures go first! */
+    finishTurn();
+}
+
+void CampController::wakeUp()
+{
+    /* Wake everyone up! */
     for (int i = 0; i < c->party->size(); i++)
-        c->party->member(i)->putToSleep();
+        c->party->member(i)->wakeUp();
 
-    CombatController::beginCombat();
+    /* Make sure we've waited long enough for camping to be effective */
+    bool healed = false;
+    int restCycles = c->saveGame->moves / CAMP_HEAL_INTERVAL;
 
-    musicFadeOut(1000);
+    if (restCycles >= 0x10000 ||
+        (restCycles & 0xffff) != c->saveGame->lastcamp)
+        healed = c->party->applyRest(HT_CAMPHEAL);
 
-    screenMessage("Resting...\n");
-    screenHideCursor();
+    screenMessage(healed ? "Party Healed!\n" : "No effect.\n");
+    c->saveGame->lastcamp = restCycles & 0xffff;
 
-    if (EventHandler::wait_msecs(xu4.settings->campTime * 1000))
-        return;
-
-    screenShowCursor();
-
-    /* Is the party ambushed during their rest? */
-    if (xu4.settings->campingAlwaysCombat || (xu4_random(8) == 0)) {
-        const Creature *m = Creature::randomAmbushing();
-
-        musicPlayLocale();
-        screenMessage("Ambushed!\n");
-
-        /* create an ambushing creature (so it leaves a chest) */
-        setCreature(c->location->prev->map->addCreature(m, c->location->prev->coords));
-
-        /* fill the creature table with creatures and place them */
-        fillCreatureTable(m);
-        placeCreatures();
-
-        /* creatures go first! */
-        finishTurn();
-    }
-    else {
-        /* Wake everyone up! */
-        for (int i = 0; i < c->party->size(); i++)
-            c->party->member(i)->wakeUp();
-
-        /* Make sure we've waited long enough for camping to be effective */
-        bool healed = false;
-        if (((c->saveGame->moves / CAMP_HEAL_INTERVAL) >= 0x10000) || (((c->saveGame->moves / CAMP_HEAL_INTERVAL) & 0xffff) != c->saveGame->lastcamp))
-            healed = c->party->applyRest(HT_CAMPHEAL);
-
-        screenMessage(healed ? "Party Healed!\n" : "No effect.\n");
-        c->saveGame->lastcamp = (c->saveGame->moves / CAMP_HEAL_INTERVAL) & 0xffff;
-
-        xu4.eventHandler->popController();  // Auto deleted.
-        xu4.game->exitToParentMap();
-        musicFadeIn(CAMP_FADE_IN_TIME, true);
-    }
+    xu4.game->exitToParentMap();
+    musicFadeIn(CAMP_FADE_IN_TIME, true);
 }
 
 void CampController::endCombat(bool adjustKarma) {
@@ -95,61 +100,52 @@ void CampController::endCombat(bool adjustKarma) {
     CombatController::endCombat(adjustKarma);
 }
 
+/*
+ * STAGE_CAMP
+ */
+void* camp_enter(Stage* st, void* args) {
+    CampController* cc = new CampController();
+
+    musicFadeOut(1000);
+
+    screenHideCursor();
+    screenMessage("Resting...\n");
+
+    stage_startMsecTimer(st, xu4.settings->campTime * 1000);
+    return cc;
+}
+
+void camp_leave(Stage* st) {
+    delete (CampController*) st->data;
+}
+
+int camp_dispatch(Stage* st, const InputEvent* ev) {
+    if (ev->type == IE_MSEC_TIMER) {
+        stage_stopMsecTimer(st);
+
+        screenShowCursor();
+
+        /* Is the party ambushed during their rest? */
+        CampController* cc = (CampController*) st->data;
+        if (xu4.settings->campingAlwaysCombat || (xu4_random(8) == 0)) {
+            cc->beginCombat(st);
+            st->dispatch = combat_dispatch;
+        } else {
+            cc->wakeUp();
+            stage_done();
+        }
+    }
+    return 0;
+}
+
+//-------------------------------------------------------------------------
+
 InnController::InnController() {
     /*
      * Normally in cities, only one opponent per encounter; inn's
      * override this to get the regular encounter size.
      */
     forceStandardEncounterSize = true;
-}
-
-void InnController::beginCombat() {
-    /* first, show the avatar before sleeping */
-    gameUpdateScreen();
-
-    /* in the original, the vendor music plays straight through sleeping */
-    if (xu4.settings->enhancements)
-        musicFadeOut(INN_FADE_OUT_TIME); /* Fade volume out to ease into rest */
-
-    EventHandler::wait_msecs(INN_FADE_OUT_TIME);
-
-    /* show the sleeping avatar */
-    const Tileset* ts = c->location->map->tileset;
-    c->party->setTransport(ts->getByName(Tile::sym.corpse)->getId());
-    gameUpdateScreen();
-
-    screenHideCursor();
-
-    if (EventHandler::wait_msecs(xu4.settings->innTime * 1000))
-        return;
-
-    screenShowCursor();
-
-    /* restore the avatar to normal */
-    c->party->setTransport(ts->getByName(Tile::sym.avatar)->getId());
-    gameUpdateScreen();
-
-    /* the party is always healed */
-    c->party->applyRest(HT_INNHEAL);
-
-    /* Is there a special encounter during your stay? */
-    // mwinterrowd suggested code, based on u4dos
-    if (c->party->member(0)->isDead()) {
-        maybeMeetIsaac();
-    }
-    else {
-        if (xu4_random(8) != 0) {
-            maybeMeetIsaac();
-        }
-        else {
-            maybeAmbush();
-        }
-    }
-
-    screenMessage("\nMorning!\n");
-    screenPrompt();
-
-    musicFadeIn(INN_FADE_IN_TIME, true);
 }
 
 void InnController::maybeMeetIsaac()
@@ -186,34 +182,118 @@ void InnController::maybeMeetIsaac()
     }
 }
 
-void InnController::maybeAmbush()
+bool InnController::maybeAmbush()
 {
     if (xu4.settings->innAlwaysCombat || (xu4_random(8) == 0)) {
         MapId mapid;
-        Creature *creature;
+        uint32_t creatId;
 
         /* Rats seem much more rare than meeting rogues in the streets */
         if (xu4_random(4) == 0) {
             /* Rats! */
             mapid = MAP_BRICK_CON;
-            creature = c->location->map->addCreature(xu4.config->creature(RAT_ID), c->location->coords);
+            creatId = RAT_ID;
             showMessage = true;
         } else {
             /* While strolling down the street, attacked by rogues! */
             mapid = MAP_INN_CON;
-            creature = c->location->map->addCreature(xu4.config->creature(ROGUE_ID), c->location->coords);
+            creatId = ROGUE_ID;
             screenMessage("\nIn the middle of the night while out on a stroll...\n\n");
             showMessage = false;
         }
+        Creature* creature =
+            c->location->map->addCreature(xu4.config->creature(creatId),
+                                          c->location->coords);
 
         map = getCombatMap(xu4.config->map(mapid));
         xu4.game->setMap(map, true, NULL, this);
 
         initCreature(creature);
-        CombatController::beginCombat();
+        return true;
     }
+    return false;
 }
 
 void InnController::awardLoot() {
     // never get a chest from inn combat
+}
+
+/*
+ * STAGE_INNREST
+ */
+void* innrest_enter(Stage* st, void* args) {
+    InnController* cc = new InnController();
+
+    /* in the original, the vendor music plays straight through sleeping */
+    if (xu4.settings->enhancements)
+        musicFadeOut(INN_FADE_OUT_TIME); /* Fade volume out to ease into rest */
+
+    /* first, show the avatar before sleeping */
+    gameUpdateScreen();
+    stage_startMsecTimer(st, INN_FADE_OUT_TIME);
+    st->dstate = 0;
+    return cc;
+}
+
+void innrest_leave(Stage* st) {
+    delete (InnController*) st->data;
+}
+
+int innrest_dispatch(Stage* st, const InputEvent* ev) {
+    switch (st->dstate) {
+    case 0:
+        if (ev->type == IE_MSEC_TIMER) {
+            /* show the sleeping avatar */
+            const Tileset* ts = c->location->map->tileset;
+            c->party->setTransport(ts->getByName(Tile::sym.corpse)->getId());
+            gameUpdateScreen();
+
+            screenHideCursor();
+
+            stage_startMsecTimer(st, xu4.settings->innTime * 1000);
+            ++st->dstate;
+        }
+        break;
+
+    case 1:
+        if (ev->type == IE_MSEC_TIMER) {
+            screenShowCursor();
+
+            /* restore the avatar to normal */
+            const Tileset* ts = c->location->map->tileset;
+            c->party->setTransport(ts->getByName(Tile::sym.avatar)->getId());
+            gameUpdateScreen();
+
+            /* the party is always healed */
+            c->party->applyRest(HT_INNHEAL);
+
+            /* Is there a special encounter during your stay? */
+            // mwinterrowd suggested code, based on u4dos
+            InnController* inn = (InnController*) st->data;
+            if (c->party->member(0)->isDead()) {
+                inn->maybeMeetIsaac();
+            } else {
+                if (xu4_random(8) != 0)
+                    inn->maybeMeetIsaac();
+                else {
+                    if (inn->maybeAmbush()) {
+                        inn->beginCombat(st);
+                        ++st->dstate;
+                        return 0;
+                    }
+                }
+            }
+
+            screenMessage("\nMorning!\n");
+            screenPrompt();
+
+            musicFadeIn(INN_FADE_IN_TIME, true);
+            stage_done();
+        }
+        break;
+
+    case 2:
+        return combat_dispatch(st, ev);
+    }
+    return 0;
 }

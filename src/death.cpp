@@ -19,43 +19,15 @@
 #define REVIVE_CASTLE_Y 8
 
 #define PAUSE_SEC   5
+#define INITIAL_DELAY   99
 
-class DeathController : public Controller {
-public:
-    DeathController()
-        : Controller(xu4.settings->gameCyclesPerSecond * PAUSE_SEC)
-    {
-        setDeleteOnPop();
-        msg = 0;
-    }
-
-    void timerFired();
-
-    uint16_t msg;
-};
-
-void deathStart(int delaySeconds) {
-    EventHandler* eh = xu4.eventHandler;
-    if (dynamic_cast<DeathController *>(eh->getController()))
-        return;
-
-    // stop playing music
-    musicFadeOut(1000);
-    screenHideCursor();
-
-    if (delaySeconds > 0) {
-        if(EventHandler::wait_msecs(delaySeconds * 1000))
-            return;
-    }
-
-    eh->pushController(new DeathController);
+void deathStart(int delay) {
+    stage_runG(STAGE_DEATH, delay ? (void*) 1 : NULL);
 }
 
 static void deathRevive() {
     while(! c->location->map->isWorldMap() && c->location->prev != NULL)
         xu4.game->exitToParentMap();
-
-    xu4.eventHandler->popController();      // Deletes the DeathController
 
     gameSetViewMode(VIEW_NORMAL);
 
@@ -81,6 +53,20 @@ static void deathRevive() {
     c->stats->setView(STATS_PARTY_OVERVIEW);
 }
 
+/*
+ * STAGE_DEATH
+ */
+void* death_enter(Stage* st, void* args)
+{
+    // stop playing music
+    musicFadeOut(1000);
+    screenHideCursor();
+
+    st->dstate = args ? INITIAL_DELAY : 0;
+    stage_startMsecTimer(st, PAUSE_SEC * 1000);
+    return NULL;
+}
+
 static const char* deathMsgs[] = {
     "\n\n\nAll is Dark...\n",
     "\nBut wait...\n",
@@ -94,24 +80,33 @@ static const char* deathMsgs[] = {
 
 #define N_MSGS  (sizeof(deathMsgs) / sizeof(char*))
 
-void DeathController::timerFired() {
-    if (msg < N_MSGS) {
-        if (msg == 0) {
-            screenEraseMapArea();
-            gameSetViewMode(VIEW_CUTSCENE);
-        }
+int death_dispatch(Stage* st, const InputEvent* ev)
+{
+    if (ev->type == IE_MSEC_TIMER) {
+        uint16_t msg = st->dstate;
+        if (msg < N_MSGS) {
+            if (msg == 0) {
+                screenEraseMapArea();
+                gameSetViewMode(VIEW_CUTSCENE);
+            }
 
-        if (msg == 5) {
-            string name = c->party->member(0)->getName();
-            int spaces = (TEXT_AREA_W - name.size()) / 2;
-            name.insert(0, spaces, ' ');
-            screenMessage(deathMsgs[msg], name.c_str());
+            if (msg == 5) {
+                string name = c->party->member(0)->getName();
+                int spaces = (TEXT_AREA_W - name.size()) / 2;
+                name.insert(0, spaces, ' ');
+                screenMessage(deathMsgs[msg], name.c_str());
+            } else
+                screenMessage(deathMsgs[msg]);
+
+            screenHideCursor();
+
+            if (++msg >= N_MSGS) {
+                deathRevive();
+                stage_done();
+            } else
+                st->dstate = msg;
         } else
-            screenMessage(deathMsgs[msg]);
-
-        screenHideCursor();
-
-        if (++msg >= N_MSGS)
-            deathRevive();
+            st->dstate = 0;     // INITIAL_DELAY is over, start messages.
     }
+    return 0;
 }

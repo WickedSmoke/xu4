@@ -2,7 +2,6 @@
  * $Id$
  */
 
-#include "cheat.h"
 #include "config.h"
 #include "game.h"
 #include "portal.h"
@@ -44,10 +43,9 @@ static string& lowercase(string &val) {
     return val;
 }
 
-CheatMenuController::CheatMenuController(GameController *game) : game(game) {
-}
+static void cheat_summonCreature(const string &name);
 
-bool CheatMenuController::keyPressed(int key) {
+static bool cheat_keyPressed(Stage* st, int key) {
     int i;
     bool valid = true;
 
@@ -76,9 +74,10 @@ bool CheatMenuController::keyPressed(int key) {
         if (newTrammelphase > 7)
             newTrammelphase = 0;
 
+        GAME_CON;
         screenMessage("Advance Moons!\n");
         while (c->saveGame->trammelphase != newTrammelphase)
-            game->updateMoons(true);
+            gc->updateMoons(true);
         break;
     }
 
@@ -262,7 +261,7 @@ bool CheatMenuController::keyPressed(int key) {
     case 's':
         screenMessage("Summon!\n");
         screenMessage("What?\n");
-        summonCreature(gameGetInput());
+        cheat_summonCreature(gameGetInput());
         break;
 
     case 't':
@@ -323,19 +322,18 @@ bool CheatMenuController::keyPressed(int key) {
         c->stats->update();
         break;
 
-    case 'w': {
+    case 'w':
         screenMessage("Wind Dir ('l' to lock):\n");
-        WindCmdController ctrl;
-        xu4.eventHandler->pushController(&ctrl);
-        ctrl.waitFor();
-        break;
-    }
+        st->dstate = 1;     // windCmd active.
+        return true;
 
-    case 'x':
+    case 'x': {
+        GAME_CON;
         screenMessage("\nX-it!\n");
-        if (!game->exitToParentMap())
+        if (! gc->exitToParentMap())
             screenMessage("Not Here!\n");
         musicPlayLocale();
+    }
         break;
 
     case 'y':
@@ -343,8 +341,9 @@ bool CheatMenuController::keyPressed(int key) {
         if ((c->location->context & CTX_DUNGEON) && (c->location->coords.z > 0))
             c->location->coords.z--;
         else {
+            GAME_CON;
             screenMessage("Leaving...\n");
-            game->exitToParentMap();
+            gc->exitToParentMap();
             musicPlayLocale();
         }
         break;
@@ -386,8 +385,8 @@ bool CheatMenuController::keyPressed(int key) {
     }
 
     if (valid) {
-        doneWaiting();
         screenPrompt();
+        stage_done();
     }
 
     return valid;
@@ -398,7 +397,7 @@ bool CheatMenuController::keyPressed(int key) {
  * as the creature's name, or the creature's id.  Once it finds the
  * creature to be summoned, it calls gameSpawnCreature() to spawn it.
  */
-void CheatMenuController::summonCreature(const string &name) {
+static void cheat_summonCreature(const string &name) {
     const Creature *m = NULL;
     string tname( name );
 
@@ -430,7 +429,11 @@ void CheatMenuController::summonCreature(const string &name) {
     screenMessage("\n%s not found\n", cname);
 }
 
-bool WindCmdController::keyPressed(int key) {
+/**
+ * Controls the wind option from the cheat menu.  It handles setting the
+ * wind direction as well as locking/unlocking.
+ */
+static bool windCmd_keyPressed(int key) {
     switch (key) {
     case U4_UP:
     case U4_LEFT:
@@ -438,15 +441,33 @@ bool WindCmdController::keyPressed(int key) {
     case U4_RIGHT:
         c->windDirection = keyToDirection(key);
         screenMessage("Wind %s!\n", getDirectionName(static_cast<Direction>(c->windDirection)));
-        doneWaiting();
         return true;
 
     case 'l':
         c->windLock = !c->windLock;
         screenMessage("Wind direction is %slocked!\n", c->windLock ? "" : "un");
-        doneWaiting();
         return true;
     }
 
-    return EventHandler::defaultKeyHandler(key);
+    return false;
+}
+
+/*
+ * STAGE_CHEAT
+ */
+void* cheat_enter(Stage* st, void* args) {
+    st->dstate = 0;     // windCmd in-active.
+    return NULL;
+}
+
+int cheat_dispatch(Stage* st, const InputEvent* ev) {
+    if (ev->type == IE_KEY_PRESS) {
+        if (st->dstate) {
+            if (windCmd_keyPressed(ev->n))
+                st->dstate = 0;
+            return 1;
+        } else
+            return cheat_keyPressed(st, ev->n);
+    }
+    return 0;
 }

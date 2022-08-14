@@ -44,7 +44,8 @@ void CombatController::engage(MapId mid, const Creature* creatures) {
     CombatMap* map = getCombatMap(xu4.config->map(mid));
     CombatController* cc = new CombatController(map);
     cc->initCreature(creatures);
-    cc->beginCombat();
+
+    stage_runG(STAGE_COMBAT, cc);
 }
 
 /*
@@ -55,15 +56,15 @@ void CombatController::engageDungeon(Dungeon* dng, int room, Direction from) {
     CombatController* cc = new CombatController(dng->roomMaps[room]);
     cc->initCreature(NULL);
     cc->initDungeonRoom(room, from);
-    cc->beginCombat();
+
+    stage_runG(STAGE_COMBAT, cc);
 }
 
 /**
  * A CombatController is automatically deleted when popped from the
  * EventHandler controller stack, so it must be created with new.
  */
-CombatController::CombatController(CombatMap* cmap) : TurnController(0) {
-    setDeleteOnPop();
+CombatController::CombatController(CombatMap* cmap) {
     camping = false;
     forceStandardEncounterSize = false;
     showMessage = true;
@@ -78,6 +79,18 @@ CombatController::~CombatController() {
     gs_unplug(listenerId);
 }
 
+/*
+ * If we entered an altar room, show the name and set the context.
+ */
+void CombatController::initAltarRoom() {
+    if (map->isAltarRoom()) {
+        screenMessage("\nThe Altar Room of %s\n",
+                      getBaseVirtueName(map->getAltarRoom()));
+        c->location->context =
+            static_cast<LocationContext>(c->location->context | CTX_ALTAR_ROOM);
+    }
+}
+
 /**
  * Initializes the combat controller with combat information
  */
@@ -86,19 +99,16 @@ void CombatController::initCreature(const Creature *m) {
 
     creature = m;
     placeCreaturesOnMap = (m == NULL) ? false : true;
-    placePartyOnMap = true;
     winOrLose = true;
     map->setDungeonRoom(false);
     map->setAltarRoom(VIRT_NONE);
 
     /* initialize creature info */
-    for (i = 0; i < AREA_CREATURES; i++) {
+    for (i = 0; i < AREA_CREATURES; i++)
         creatureTable[i] = NULL;
-    }
 
-    for (i = 0; i < AREA_PLAYERS; i++) {
+    for (i = 0; i < AREA_PLAYERS; i++)
         party.push_back(NULL);
-    }
 
     /* fill the creature table if a creature was provided to create */
     fillCreatureTable(m);
@@ -181,34 +191,28 @@ void CombatController::applyCreatureTileEffects() {
 /**
  * Begin combat
  */
-void CombatController::beginCombat() {
+void CombatController::beginCombat(Stage* st) {
     bool partyIsReadyToFight = false;
+
+    stage = st;
 
     if (c->horseSpeed == HORSE_GALLOP)
         c->horseSpeed = HORSE_GALLOP_INTERRUPT;
 
     /* place party members on the map */
-    if (placePartyOnMap)
-        placePartyMembers();
+    placePartyMembers();
 
     /* place creatures on the map */
     if (placeCreaturesOnMap)
         placeCreatures();
 
-    /* if we entered an altar room, show the name */
-    if (map->isAltarRoom()) {
-        screenMessage("\nThe Altar Room of %s\n", getBaseVirtueName(map->getAltarRoom()));
-        c->location->context = static_cast<LocationContext>(c->location->context | CTX_ALTAR_ROOM);
-    }
+    initAltarRoom();
 
     /* if there are creatures around, start combat! */
     if (showMessage && placeCreaturesOnMap && winOrLose)
         screenMessage("\n%c****%c COMBAT %c****%c\n", FG_GREY, FG_WHITE, FG_GREY, FG_WHITE);
 
-    /* FIXME: there should be a better way to accomplish this */
-    if (!camping) {
-        musicPlayLocale();
-    }
+    musicPlayLocale();
 
     /* Set focus to the first active party member, if there is one */
     for (int i = 0; i < AREA_PLAYERS; i++) {
@@ -218,20 +222,14 @@ void CombatController::beginCombat() {
         }
     }
 
-    if (!camping && !partyIsReadyToFight)
+    if (! partyIsReadyToFight)
         c->location->turnCompleter->finishTurn();
-
-    xu4.eventHandler->pushController(this);
 }
 
 /*
  * Transition back to parent map/controller and delete this controller.
  */
 void CombatController::endCombat(bool adjustKarma) {
-    // Other code paths use autoDelete, but we manually delete below.
-    setDeleteOnPop(false);
-    xu4.eventHandler->popController();
-
     /* The party is dead -- start the death sequence */
     if (c->party->isDead()) {
         /* remove the creature */
@@ -303,11 +301,12 @@ void CombatController::endCombat(bool adjustKarma) {
             c->location->map->removeObject(creature);
 
         /* Make sure finishturn only happens if a new combat has not begun */
-        if (! xu4.eventHandler->getController()->isCombatController())
-            c->location->turnCompleter->finishTurn();
-    }
+        TurnController* tcon = c->location->turnCompleter;
+        if (! tcon->isCombatController())
+            tcon->finishTurn();
 
-    delete this;
+        stage_runS(stage, STAGE_EX_DONE);   // stage_done()
+    }
 }
 
 /**
@@ -438,9 +437,6 @@ void CombatController::placeCreatures() {
  */
 void CombatController::placePartyMembers() {
     int i;
-//  The following line caused a crash upon entering combat (MSVC8 binary)
-//    party.clear();
-
     for (i = 0; i < c->party->size(); i++) {
         PartyMember *p = c->party->member(i);
         p->focused = false; // take the focus off of everyone
@@ -895,7 +891,7 @@ bool CombatController::keyPressed(int key) {
             endCombat(false);   /* don't adjust karma */
         break;
 
-    case ' ':
+    case U4_SPACE:
         screenMessage("Pass\n");
         break;
 
@@ -1038,19 +1034,15 @@ bool CombatController::keyPressed(int key) {
         break;
 
     case 'z':
-        {
-            c->stats->setView(StatsView(STATS_CHAR1 + getFocus()));
+        c->stats->setView(StatsView(STATS_CHAR1 + getFocus()));
 
-            /* reset the spell mix menu and un-highlight the current item,
-               and hide reagents that you don't have */
-            c->stats->resetReagentsMenu();
+        /* reset the spell mix menu and un-highlight the current item,
+           and hide reagents that you don't have */
+        c->stats->resetReagentsMenu();
 
-            screenMessage("Ztats\n");
-            ZtatsController ctrl;
-            xu4.eventHandler->pushController(&ctrl);
-            ctrl.waitFor();
-        }
-        break;
+        screenMessage("Ztats\n");
+        stage_runG(STAGE_STATS, NULL);
+        return true;
 
     case 'b':
     case 'e':
@@ -1092,13 +1084,13 @@ bool CombatController::keyPressed(int key) {
         break;
 
     default:
-        return EventHandler::defaultKeyHandler(key);
+        return false;   //EventHandler::defaultKeyHandler(key);
     }
 
     if (valid) {
         gameStampCommandTime();
-        if (endTurn && (xu4.eventHandler->getController() == this))
-            c->location->turnCompleter->finishTurn();
+        if (endTurn /*&& (xu4.eventHandler->getController() == this)*/)
+            finishTurn();
     }
 
     return valid;
@@ -1401,4 +1393,25 @@ MapId GameController::combatMapForTile(const Tile *groundTile, Object *obj) {
     if (it != tileMap.end())
         return it->second;
     return MAP_BRICK_CON;
+}
+
+/*
+ * STAGE_COMBAT
+ */
+void* combat_enter(Stage* st, void* args) {
+    CombatController* cc = (CombatController*) args;
+    cc->beginCombat(st);
+    return cc;
+}
+
+void combat_leave(Stage* st) {
+    delete (CombatController*) st->data;
+}
+
+int combat_dispatch(Stage* st, const InputEvent* ev) {
+    if (ev->type == IE_KEY_PRESS) {
+        CombatController* cc = (CombatController*) st->data;
+        return cc->keyPressed(ev->n);
+    }
+    return 0;
 }

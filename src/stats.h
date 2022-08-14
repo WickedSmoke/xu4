@@ -34,6 +34,8 @@ enum StatsView {
     MIX_REAGENTS
 };
 
+struct Stage;
+
 class StatsArea {
 public:
     StatsArea();
@@ -52,7 +54,7 @@ public:
     TextView *getMainArea() { return &mainArea; }
 
     void resetReagentsMenu();
-    Menu *getReagentsMenu() { return &reagentsMixMenu; }
+    void mixReagentsU5(Ingredients*);
 
 private:
     static void statsNotice(int, void*, void*);
@@ -74,6 +76,7 @@ private:
     StatsView view;
 
     Menu reagentsMixMenu;
+    Ingredients* ingredients;
     int listenerId;
 
     int16_t  focusPlayer;
@@ -81,20 +84,8 @@ private:
     uint16_t flashMask;
     uint16_t flashCycle;
     bool     avatarOnly;
-};
 
-/**
- * Controller for the reagents menu used when mixing spells.  Fills
- * the passed in Ingredients with the selected reagents.
- */
-class ReagentsMenuController : public MenuController {
-public:
-    ReagentsMenuController(Menu *menu, Ingredients *i, TextView *view) : MenuController(menu, view), ingredients(i) { }
-
-    bool keyPressed(int key);
-
-private:
-    Ingredients *ingredients;
+    friend int mixin5_dispatch(Stage*, const InputEvent*);
 };
 
 #endif

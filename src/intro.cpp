@@ -4,6 +4,7 @@
 
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 #include "u4.h"
 
@@ -48,6 +49,10 @@ using namespace std;
 #define GYP_SEGUE1 13
 #define GYP_SEGUE2 14
 
+#define INTRO_CON       IntroController* ic = xu4.intro
+#define INTRO_CON_ST    IntroController* ic = (IntroController*) st->data
+#define INTRO_RES       (STAGE_INTRO+1)
+
 #ifndef GPU_RENDER
 class IntroObjectState {
 public:
@@ -56,9 +61,6 @@ public:
     MapTile tile; /* base tile + tile frame */
 };
 #endif
-
-/* temporary place-holder for settings changes */
-SettingsData settingsChanged;
 
 const int IntroBinData::INTRO_TEXT_OFFSET = 17445 - 1;  // (start at zero)
 const int IntroBinData::INTRO_MAP_OFFSET = 30339;
@@ -168,20 +170,93 @@ bool IntroBinData::load() {
     return true;
 }
 
-IntroController::IntroController() :
-    Controller(1),
-    backgroundArea(),
-    menuArea(1 * CHAR_WIDTH, 13 * CHAR_HEIGHT, 38, 11),
-    extendedMenuArea(2 * CHAR_WIDTH, 10 * CHAR_HEIGHT, 36, 13),
-    questionArea(INTRO_TEXT_X * CHAR_WIDTH, INTRO_TEXT_Y * CHAR_HEIGHT, INTRO_TEXT_WIDTH, INTRO_TEXT_HEIGHT),
-    mapArea(BORDER_WIDTH, (TILE_HEIGHT * 6) + BORDER_HEIGHT, INTRO_MAP_WIDTH, INTRO_MAP_HEIGHT),
-    binData(NULL),
-    titles(),                   // element list
-    title(titles.begin()),      // element iterator
-    bSkipTitles(false),
-    egaGraphics(true)
+//----------------------------------------------------------------------------
+
+struct SettingsMenus {
+    static void menusNotice(int, void*, void*);
+
+    SettingsMenus();
+
+    void showMenu(Menu *menu);
+    void drawMenu();
+    void dispatchMenu(const MenuEvent* event);
+    void saveSettings();
+    void updateConfMenu(int);
+    void updateVideoMenu(int);
+    void updateSoundMenu(int);
+
+    enum MenuConstants {
+        MI_CONF_VIDEO,
+        MI_CONF_SOUND,
+        MI_CONF_INPUT,
+        MI_CONF_SPEED,
+        MI_CONF_GAMEPLAY,
+        MI_CONF_INTERFACE,
+        MI_CONF_01,
+        MI_VIDEO_CONF_GFX,
+        MI_VIDEO_02,
+        MI_VIDEO_03,
+        MI_VIDEO_04,
+        MI_VIDEO_05,
+        MI_VIDEO_06,
+        MI_VIDEO_07,
+        MI_VIDEO_08,
+        MI_GFX_TILE_TRANSPARENCY,
+        MI_GFX_TILE_TRANSPARENCY_SHADOW_SIZE,
+        MI_GFX_TILE_TRANSPARENCY_SHADOW_OPACITY,
+        MI_GFX_RETURN,
+        MI_SOUND_01,
+        MI_SOUND_02,
+        MI_SOUND_03,
+        MI_INPUT_01,
+        MI_INPUT_02,
+        MI_INPUT_03,
+        MI_SPEED_01,
+        MI_SPEED_02,
+        MI_SPEED_03,
+        MI_SPEED_04,
+        MI_SPEED_05,
+        MI_SPEED_06,
+        MI_SPEED_07,
+        MI_GAMEPLAY_01,
+        MI_GAMEPLAY_02,
+        MI_GAMEPLAY_03,
+        MI_GAMEPLAY_04,
+        MI_GAMEPLAY_05,
+        MI_GAMEPLAY_06,
+        MI_INTERFACE_01,
+        MI_INTERFACE_02,
+        MI_INTERFACE_03,
+        MI_INTERFACE_04,
+        MI_INTERFACE_05,
+        MI_INTERFACE_06,
+        USE_SETTINGS = 0xFE,
+        CANCEL = 0xFF
+    };
+
+    Menu mainMenu;
+    Menu confMenu;
+    Menu videoMenu;
+    Menu gfxMenu;
+    Menu soundMenu;
+    Menu inputMenu;
+    Menu speedMenu;
+    Menu gameplayMenu;
+    Menu interfaceMenu;
+
+    Menu* active;
+    TextView extendedMenuArea;
+    int listenerId;
+
+    /* temporary place-holder for settings changes */
+    SettingsData settingsChanged;
+};
+
+SettingsMenus::SettingsMenus() :
+    extendedMenuArea(2 * CHAR_WIDTH, 10 * CHAR_HEIGHT, 36, 13)
 {
-    // initialize menus
+    active = &confMenu;
+
     confMenu.setTitle("XU4 Configuration:", 0, 0);
     confMenu.add(MI_CONF_VIDEO,               "\010 Video Options",              2,  2,/*'v'*/  2);
     confMenu.add(MI_CONF_SOUND,               "\010 Sound Options",              2,  3,/*'s'*/  2);
@@ -195,8 +270,8 @@ IntroController::IntroController() :
     confMenu.setClosesMenu(CANCEL);
 
     /* set the default visibility of the two enhancement menus */
-    confMenu.getItemById(MI_CONF_GAMEPLAY)->setVisible(xu4.settings->enhancements);
-    confMenu.getItemById(MI_CONF_INTERFACE)->setVisible(xu4.settings->enhancements);
+    confMenu.itemOfId(MI_CONF_GAMEPLAY)->setVisible(xu4.settings->enhancements);
+    confMenu.itemOfId(MI_CONF_INTERFACE)->setVisible(xu4.settings->enhancements);
 
     videoMenu.setTitle("Video Options:", 0, 0);
     videoMenu.add(MI_VIDEO_CONF_GFX,              "\010 Game Graphics Options",  2,  2,/*'g'*/  2);
@@ -234,7 +309,7 @@ IntroController::IntroController() :
     inputMenu.setTitle("Keyboard Options:", 0, 0);
     inputMenu.add(MI_INPUT_01,  new IntMenuItem("Repeat Delay        %4d msec", 2,  2,/*'d'*/  7, &settingsChanged.keydelay, 100, MAX_KEY_DELAY, 100));
     inputMenu.add(MI_INPUT_02,  new IntMenuItem("Repeat Interval     %4d msec", 2,  3,/*'i'*/  7, &settingsChanged.keyinterval, 10, MAX_KEY_INTERVAL, 10));
-    /* "Mouse Options:" is drawn in the updateInputMenu() function */
+    /* "Mouse Options:" is drawn in dispatchMenu() */
     inputMenu.add(MI_INPUT_03, new BoolMenuItem("Mouse                %s",      2,  7,/*'m'*/  0, &settingsChanged.mouseOptions.enabled));
     inputMenu.add(USE_SETTINGS,                 "\010 Use These Settings",      2, 11,/*'u'*/  2);
     inputMenu.add(CANCEL,                       "\010 Cancel",                  2, 12,/*'c'*/  2);
@@ -285,23 +360,204 @@ IntroController::IntroController() :
     interfaceMenu.setClosesMenu(CANCEL);
 }
 
+/*
+ * Set the active menu.
+ */
+void SettingsMenus::showMenu(Menu *menu)
+{
+    active = menu;
+    menu->reset();
+}
+
+void SettingsMenus::drawMenu()
+{
+    // draw the extended background for all option screens
+    // beasties are always visible on the menus
+    INTRO_CON;
+    ic->backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
+    ic->backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
+    ic->drawBeasties();
+
+    active->show(&extendedMenuArea);
+
+    // after drawing the menu, extra menu text can be added here
+    if (active == &inputMenu)
+        extendedMenuArea.textAt(0, 5, "Mouse Options:");
+    else if (active == &interfaceMenu)
+        extendedMenuArea.textAt(2, 3, "  (Open, Jimmy, etc.)");
+
+    screenUploadToGPU();
+}
+
+/*
+ * Update the screen when an observed menu is reset or has an item
+ * activated.
+ */
+void SettingsMenus::menusNotice(int sender, void* eventData, void* user) {
+    ((SettingsMenus*) user)->dispatchMenu((MenuEvent*) eventData);
+}
+
+void SettingsMenus::saveSettings() {
+    xu4.settings->setData(settingsChanged);
+    xu4.settings->write();
+}
+
+void SettingsMenus::dispatchMenu(const MenuEvent* event)
+{
+    const Menu* menu = event->menu;
+
+    //printf("KR menu %d\n", event->type);
+
+    if (event->type == MenuEvent::ACTIVATE ||
+        event->type == MenuEvent::INCREMENT ||
+        event->type == MenuEvent::DECREMENT)
+    {
+        int itemId = event->item->getId();
+
+        if (menu == &confMenu) {
+            updateConfMenu(itemId);
+        }
+        else if (menu == &videoMenu) {
+            updateVideoMenu(itemId);
+        }
+        else if (menu == &gfxMenu) {
+            if(itemId == MI_GFX_RETURN)
+                showMenu(&videoMenu);
+        }
+        else if (menu == &soundMenu) {
+            updateSoundMenu(itemId);
+        }
+        else if (menu == &inputMenu) {
+            if (itemId == USE_SETTINGS) {
+                saveSettings();
+                screenShowMouseCursor(xu4.settings->mouseOptions.enabled);
+            }
+        }
+        else if (menu == &speedMenu) {
+            if (itemId == USE_SETTINGS) {
+                saveSettings();
+
+                // re-initialize events
+                xu4.timerInterval = 1000 / xu4.settings->gameCyclesPerSecond;
+            }
+        }
+        else if (menu == &gameplayMenu ||
+                 menu == &interfaceMenu) {
+            if (itemId == USE_SETTINGS)
+                saveSettings();
+        }
+
+        if (itemId == CANCEL)
+            settingsChanged = *xu4.settings;    // discard settings
+    }
+
+    drawMenu();
+}
+
+void SettingsMenus::updateConfMenu(int itemId) {
+    // show or hide game enhancement options if enhancements are enabled/disabled
+    confMenu.itemOfId(MI_CONF_GAMEPLAY)->setVisible(settingsChanged.enhancements);
+    confMenu.itemOfId(MI_CONF_INTERFACE)->setVisible(settingsChanged.enhancements);
+
+    saveSettings();
+
+    switch(itemId) {
+    case MI_CONF_VIDEO:
+        showMenu(&videoMenu);
+        break;
+    case MI_VIDEO_CONF_GFX:
+        showMenu(&gfxMenu);
+        break;
+    case MI_CONF_SOUND:
+        showMenu(&soundMenu);
+        break;
+    case MI_CONF_INPUT:
+        showMenu(&inputMenu);
+        break;
+    case MI_CONF_SPEED:
+        showMenu(&speedMenu);
+        break;
+    case MI_CONF_GAMEPLAY:
+        showMenu(&gameplayMenu);
+        break;
+    case MI_CONF_INTERFACE:
+        showMenu(&interfaceMenu);
+        break;
+    }
+}
+
+void SettingsMenus::updateVideoMenu(int itemId) {
+    switch(itemId) {
+    case USE_SETTINGS:
+        /* save settings (if necessary) */
+        if (*xu4.settings != settingsChanged) {
+            saveSettings();
+
+            /* FIXME: resize images, etc. */
+            INTRO_CON;
+            ic->deleteIntro();  // delete intro stuff
+            screenReInit();
+            ic->init();         // re-fix the backgrounds and scale images, etc.
+
+            // go back to menu mode
+            ic->mode = IntroController::INTRO_MENU;
+        }
+        break;
+    case MI_VIDEO_CONF_GFX:
+        showMenu(&gfxMenu);
+        break;
+    }
+}
+
+void SettingsMenus::updateSoundMenu(int itemId) {
+    switch(itemId) {
+        case MI_SOUND_01:
+            musicSetVolume(settingsChanged.musicVol);
+            break;
+        case MI_SOUND_02:
+            soundSetVolume(settingsChanged.soundVol);
+            soundPlay(SOUND_FLEE);
+            break;
+        case USE_SETTINGS:
+            // save settings
+            xu4.settings->setData(settingsChanged);
+            xu4.settings->write();
+            {
+            INTRO_CON;
+            musicPlay(ic->introMusic);
+            }
+            break;
+        case CANCEL:
+            musicSetVolume(xu4.settings->musicVol);
+            soundSetVolume(xu4.settings->soundVol);
+            break;
+    }
+}
+
+//----------------------------------------------------------------------------
+
+IntroController::IntroController() :
+    backgroundArea(),
+    menuArea(1 * CHAR_WIDTH, 13 * CHAR_HEIGHT, 38, 11),
+    questionArea(INTRO_TEXT_X * CHAR_WIDTH, INTRO_TEXT_Y * CHAR_HEIGHT, INTRO_TEXT_WIDTH, INTRO_TEXT_HEIGHT),
+    mapArea(BORDER_WIDTH, (TILE_HEIGHT * 6) + BORDER_HEIGHT, INTRO_MAP_WIDTH, INTRO_MAP_HEIGHT),
+    menus(NULL),
+    binData(NULL),
+    titles(),                   // element list
+    title(titles.begin()),      // element iterator
+    gateAnimator(NULL),
+    bSkipTitles(false),
+    egaGraphics(true)
+{
+}
+
 IntroController::~IntroController() {
+    delete menus;
+
     for (unsigned i=0; i < titles.size(); i++) {
         delete titles[i].srcImage;
         delete titles[i].destImage;
     }
-}
-
-bool IntroController::present() {
-    init();
-    preloadMap();
-    listenerId = gs_listen(1<<SENDER_MENU, introNotice, this);
-    return true;
-}
-
-void IntroController::conclude() {
-    gs_unplug(listenerId);
-    deleteIntro();
 }
 
 #ifdef GPU_RENDER
@@ -326,7 +582,7 @@ bool IntroController::init() {
     justInitiatedNewGame = false;
     introMusic = MUSIC_TOWNS;
 
-    uint16_t saveGroup = xu4_setResourceGroup(StageIntro);
+    uint16_t saveGroup = xu4_setResourceGroup(INTRO_RES);
 
     // sigData is referenced during Titles initialization
     binData = new IntroBinData();
@@ -376,7 +632,8 @@ bool IntroController::init() {
 
     backgroundArea.reinit();
     menuArea.reinit();
-    extendedMenuArea.reinit();
+    if (menus)
+        menus->extendedMenuArea.reinit();
     questionArea.reinit();
     mapArea.reinit();
 
@@ -410,7 +667,7 @@ void IntroController::deleteIntro() {
     objectStateTable = NULL;
 #endif
 
-    xu4_freeResourceGroup(StageIntro);
+    xu4_freeResourceGroup(INTRO_RES);
     beastiesImg = NULL;
 }
 
@@ -422,7 +679,7 @@ unsigned char *IntroController::getSigData() {
 /**
  * Handles keystrokes during the introduction.
  */
-bool IntroController::keyPressed(int key) {
+bool IntroController::keyPressed(Stage* st, int key) {
     bool valid = true;
 
     switch (mode) {
@@ -441,30 +698,24 @@ bool IntroController::keyPressed(int key) {
     case INTRO_MENU:
         switch (key) {
         case 'i':
-            initiateNewGame();
+            stage_run(STAGE_NEWGAME);
             break;
         case 'j':
-            journeyOnward();
+            journeyOnward(st);
             break;
         case 'r':
             mode = INTRO_MAP;
             updateScreen();
             MAP_ENABLE;
             break;
-        case 'c': {
-            // Make a copy of our settings so we can change them
-            settingsChanged = *xu4.settings;
-            screenHideCursor();
-            runMenu(&confMenu, &extendedMenuArea, true);
-            screenShowCursor();
-            updateScreen();
+        case 'c':
+            stage_run(STAGE_SETMENU);
             break;
-        }
         case 'a':
-            about();
+            stage_run(STAGE_ABOUT);
             break;
         case 'q':
-            xu4.eventHandler->quitGame();
+            stage_exit();
             break;
         case '1':
         case '2':
@@ -492,28 +743,7 @@ bool IntroController::keyPressed(int key) {
         return true;
     }
 
-    return valid || EventHandler::defaultKeyHandler(key);
-}
-
-bool IntroController::inputEvent(const InputEvent* ev) {
-    if (ev->type == IE_MOUSE_PRESS && ev->n == CMOUSE_LEFT)
-    {
-        if (mode == INTRO_TITLES || mode == INTRO_MAP)
-            keyPressed(U4_SPACE);
-        else if (mode == INTRO_MENU) {
-            int cx, cy;
-            menuArea.mouseTextPos(ev->x, ev->y, cx, cy);
-
-            // Matches text position in updateScreen().
-            if (cx >= 10 && cx <= 28) {
-                if (cy >= 5 && cy <= 9) {
-                    static const char menuKey[] = "rjica";
-                    keyPressed( menuKey[cy - 5] );
-                }
-            }
-        }
-    }
-    return true;
+    return valid;
 }
 
 /**
@@ -682,39 +912,51 @@ void IntroController::drawBeastie(int beast, int vertoffset, int frame) {
  * painted: the circle without the moongate, but with a small white
  * dot representing the anhk and history book.
  */
-void IntroController::animateTree(Symbol frame) {
+struct GateAnimator
+{
+    ImageInfo* info;
+    const SubImage* subimage;
     int fi, fcount;
     int gateH, deltaH;
     int x, y, ytop;
-    const SubImage* subimage;
-    ImageInfo *info = xu4.imageMgr->imageInfo(IMG_MOONGATE, &subimage);
-    if (! subimage)
-        return;
+    Symbol frame;
 
-    // Hack to account for different tree images.
-    if (egaGraphics) {
-        x = 72;
-        ytop = 68;
-    } else {
-        x = 84;
-        ytop = 53;
+    void initialize(Symbol aframe, bool egaGraphics) {
+        info = xu4.imageMgr->imageInfo(IMG_MOONGATE, &subimage);
+        if (! subimage)
+            return;
+
+        // Hack to account for different tree images.
+        if (egaGraphics) {
+            x = 72;
+            ytop = 68;
+        } else {
+            x = 84;
+            ytop = 53;
+        }
+
+        y = ytop + subimage->height;
+        fcount = subimage->height;
+
+        frame = aframe;
+        if (frame == IMG_MOONGATE) {
+            soundPlay(SOUND_GATE_OPEN);
+            gateH = 1;
+            deltaH = 1;
+        } else {
+            gateH = subimage->height - 1;
+            deltaH = -1;
+        }
+        fi = 0;
     }
 
-    y = ytop + subimage->height;
-    fcount = subimage->height;
+    // Wait 1/24 sec. if returns true.  Otherwise the animation is complete.
+    bool nextFrame(IntroController* ic) {
+        if (! subimage)
+            return false;
 
-    if (frame == IMG_MOONGATE) {
-        soundPlay(SOUND_GATE_OPEN);
-        gateH = 1;
-        deltaH = 1;
-    } else {
-        gateH = subimage->height - 1;
-        deltaH = -1;
-    }
-
-    for (fi = 0; fi < fcount; ++fi) {
         if (deltaH < 0)
-            backgroundArea.draw(frame, x, ytop);
+            ic->backgroundArea.draw(frame, x, ytop);
 
         info->image->drawSubRect(x, y - gateH, subimage->x, subimage->y,
                                  subimage->width, gateH);
@@ -725,10 +967,10 @@ void IntroController::animateTree(Symbol frame) {
             gateH = subimage->height;
 
         screenUploadToGPU();
-        if (EventHandler::wait_msecs(42))
-            break;
+
+        return (++fi < fcount);
     }
-}
+};
 
 /**
  * Draws the cards in the character creation sequence with the gypsy.
@@ -788,23 +1030,6 @@ void IntroController::updateScreen() {
         backgroundArea.draw(BKGD_INTRO);
         backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
 
-        // if there is an error message to display, show it
-        if (xu4.errorMessage)
-        {
-            int len = strlen(xu4.errorMessage);
-            menuArea.textAt(19 - len / 2, 5, xu4.errorMessage);
-            xu4.errorMessage = NULL;
-
-            drawBeasties();
-            screenUploadToGPU();
-
-            // wait for a couple seconds
-            EventHandler::wait_msecs(3000);
-            // clear the screen again
-            backgroundArea.draw(BKGD_INTRO);
-            backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-        }
-
         menuArea.textAt(1,  1, "In another world, in a time to come.");
         menuArea.textAt(14, 3, "Options:");
         menuArea.textAtKey(10, 5, "Return to the view", 0);
@@ -823,237 +1048,367 @@ void IntroController::updateScreen() {
     }
 }
 
-/**
+/*
+ * STAGE_IERROR
+ */
+void* error_enter(Stage*, void*)
+{
+    INTRO_CON;
+
+    screenHideCursor();
+
+    ic->backgroundArea.draw(BKGD_INTRO);
+    ic->backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
+
+    assert(xu4.errorMessage);
+    int len = strlen(xu4.errorMessage);
+    ic->menuArea.textAt(19 - len / 2, 5, xu4.errorMessage);
+    xu4.errorMessage = NULL;
+
+    ic->drawBeasties();
+    screenUploadToGPU();
+
+    return ic;
+}
+
+int error_dispatch(Stage* st, const InputEvent* ev)
+{
+    // Waiting 3 seconds using Stage::tickInterval.
+    if (ev->type == IE_CYCLE_TIMER) {
+        INTRO_CON_ST;
+        ic->updateScreen();
+        stage_done();
+    }
+    return 0;
+}
+
+/*
+ * STAGE_NEWGAME
+ *
  * Initiate a new savegame by reading the name, sex, then presenting a
  * series of questions to determine the class of the new character.
  */
-void IntroController::initiateNewGame() {
+void* newgame_enter(Stage* st, void*)
+{
+    INTRO_CON;
+
+#if 0
+    xu4.errorMessage = "\027Test Error Message\031";
+    stage_run(STAGE_IERROR);
+    return NULL;
+#endif
+
+#if 1
     // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_INTRO);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
+    ic->backgroundArea.draw(BKGD_INTRO);
+    ic->backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
 
     // display name prompt and read name from keyboard
-    menuArea.textAt(3, 3, "By what name shalt thou be known");
-    menuArea.textAt(3, 4, "in this world and time?");
+    ic->menuArea.textAt(3, 3, "By what name shalt thou be known");
+    ic->menuArea.textAt(3, 4, "in this world and time?");
 
     // enable the text cursor after setting it's initial position
     // this will avoid drawing in undesirable areas like 0,0
-    menuArea.setCursorPos(11, 7);
+    ic->menuArea.setCursorPos(11, 7);
 
-    drawBeasties();
+    ic->drawBeasties();
 
-    string nameBuffer = EventHandler::readStringView(12, &menuArea, "\033");
-    if (nameBuffer.length() == 0) {
-        // the user didn't enter a name
-        menuArea.hideCursor();
-        screenShowCursor();
-        updateScreen();
-        return;
+    ic->dstate = 0;
+    input_stringInitView(&ic->inString, 12, &ic->menuArea, "\033");
+#else
+    // For testing.
+    ic->nameBuffer = "test";
+    ic->sex = 'm';
+    for (int i = 0; i < 8; i++) {
+        ic->questionTree[i] = i;
+        ic->questionTree[i+8] = i;
     }
+    stage_run(STAGE_BEGIN);
+#endif
 
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_INTRO);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-
-    // display sex prompt and read sex from keyboard
-    menuArea.textAt(3, 3, "Art thou Male or Female?");
-
-    // the cursor is already enabled, just change its position
-    menuArea.setCursorPos(28, 3);
-
-    drawBeasties();
-
-    SexType sex;
-    int sexChoice = EventHandler::readChoice("mf");
-    if (sexChoice == 'm')
-        sex = SEX_MALE;
-    else
-        sex = SEX_FEMALE;
-
-    // Display entry for a moment.
-    menuArea.hideCursor();
-    screenUploadToGPU();
-    EventHandler::wait_msecs(250);
-
-    finishInitiateGame(nameBuffer, sex);
+    return ic;
 }
 
-void IntroController::finishInitiateGame(const string &nameBuffer, SexType sex)
+int newgame_dispatch(Stage* st, const InputEvent* ev)
 {
-#ifdef IOS
-    mode = INTRO_MENU; // ensure we are now in the menu mode, (i.e., stop drawing the map).
-#endif
+    INTRO_CON_ST;
 
-    {
-    uint16_t saveGroup = xu4_setResourceGroup(StageIntro);
+    switch (ic->dstate) {
+    case 0:
+        switch (input_stringDispatch(&ic->inString, ev)) {
+            case INPUT_DONE:
+                ic->nameBuffer = ic->inString.value;
 
-    ImageInfo* tree = xu4.imageMgr->get(BKGD_TREE);
-    egaGraphics = tree && (tree->getFilename().compare(0, 3, "u4/") == 0);
+                // draw the extended background for all option screens
+                ic->backgroundArea.draw(BKGD_INTRO);
+                ic->backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
 
-    // show the lead up story
-    showStory();
-    if (xu4.stage != StageIntro)
-        return;
+                // display sex prompt and read sex from keyboard
+                ic->menuArea.textAt(3, 3, "Art thou Male or Female?");
 
-    // ask questions that determine character class
-    startQuestions();
-    if (xu4.stage != StageIntro)
-        return;
+                // the cursor is already enabled, just change its position
+                ic->menuArea.setCursorPos(28, 3);
 
-    xu4_setResourceGroup(saveGroup);
-    }
+                ic->drawBeasties();
 
-    // write out save game an segue into game
-
-    delete xu4.saveGame;
-    xu4.saveGame = NULL;    // Make GameController::init() reload the game.
-
-    FILE *saveGameFile = fopen((xu4.settings->getUserPath() + PARTY_SAV).c_str(), "wb");
-    if (!saveGameFile) {
-        questionArea.hideCursor();
-        xu4.errorMessage = "Unable to create save game!";
-        updateScreen();
-        return;
-    }
-
-    {
-    SaveGame saveGame;
-    SaveGamePlayerRecord avatar;
-
-    avatar.init();
-    strcpy(avatar.name, nameBuffer.c_str());
-    avatar.sex = sex;
-    saveGame.init(&avatar);
-    initPlayers(&saveGame);
-    saveGame.food = 30000;
-    saveGame.gold = 200;
-    saveGame.reagents[REAG_GINSENG] = 3;
-    saveGame.reagents[REAG_GARLIC] = 4;
-    saveGame.torches = 2;
-    saveGame.write(saveGameFile);
-    }
-
-    fclose(saveGameFile);
-
-    saveGameFile = fopen((xu4.settings->getUserPath() + MONSTERS_SAV).c_str(), "wb");
-    if (saveGameFile) {
-        saveGameMonstersWrite(NULL, saveGameFile);
-        fclose(saveGameFile);
-    }
-    justInitiatedNewGame = true;
-
-    // show the text thats segues into the main game
-    showText(binData->introGypsy[GYP_SEGUE1]);
-    soundSpeakLine(VOICE_GYPSY, 4);
-#ifdef IOS
-    U4IOS::switchU4IntroControllerToContinueButton();
-#endif
-    EventHandler::waitAnyKey();
-
-    showText(binData->introGypsy[GYP_SEGUE2]);
-    EventHandler::waitAnyKey();
-
-    // done: exit intro and let game begin
-    questionArea.hideCursor();
-
-    if (xu4.stage != StageExitGame)
-        xu4.stage = StagePlay;
-    xu4.eventHandler->setControllerDone();
-}
-
-void IntroController::showStory() {
-    beastiesVisible = false;
-
-    questionArea.setCursorFollowsText(true);
-
-    for (int storyInd = 0; storyInd < 24; storyInd++) {
-        if (storyInd == 0)
-            backgroundArea.draw(BKGD_TREE);
-        else if (storyInd == 6)
-            backgroundArea.draw(BKGD_PORTAL);
-        else if (storyInd == 11)
-            backgroundArea.draw(BKGD_TREE);
-        else if (storyInd == 15)
-            backgroundArea.draw(BKGD_OUTSIDE);
-        else if (storyInd == 17)
-            backgroundArea.draw(BKGD_INSIDE);
-        else if (storyInd == 20)
-            backgroundArea.draw(BKGD_WAGON);
-        else if (storyInd == 21)
-            backgroundArea.draw(BKGD_GYPSY);
-        else if (storyInd == 23)
-            backgroundArea.draw(BKGD_ABACUS);
-
-        showText(binData->introText[storyInd]);
-
-        switch (storyInd) {
-            case 3:
-                questionArea.hideCursor();
-                animateTree(IMG_MOONGATE);
+                ic->dstate++;
                 break;
-            case 5:
-                questionArea.hideCursor();
-                animateTree(IMG_ITEMS);
-                break;
-            case 20:
-                soundSpeakLine(VOICE_GYPSY, 0);
-                break;
-            case 22:
-                soundSpeakLine(VOICE_GYPSY, 1);
-                break;
-            case 23:
-                soundSpeakLine(VOICE_GYPSY, 2);
+
+            case INPUT_CANCEL:
+                //ic->menuArea.hideCursor();
+                screenShowCursor();
+                ic->updateScreen();
+                stage_done();
                 break;
         }
+        break;
 
-        // enable the cursor here to avoid drawing in undesirable locations
-        questionArea.showCursor();
-        EventHandler::waitAnyKey();
-        if (xu4.stage != StageIntro)
-            break;
+    case 1:
+        if (input_choiceDispatch("mf", ev, &ic->sex) == INPUT_DONE) {
+            ic->menuArea.hideCursor();
+            // Display entry for a moment.
+            // FIXME: input_choice draws the char when the game context exists,
+            //        but we must do it manally here.
+            ic->menuArea.drawChar(toupper(ic->sex), 28, 3);
+            screenUploadToGPU();
+
+            stage_startMsecTimer(st, 500);
+            ic->dstate++;
+        }
+        break;
+
+    case 2:
+        if (ev->type == IE_MSEC_TIMER)
+            stage_run(STAGE_STORY);
+        break;
     }
+
+    return 1;
 }
 
-/**
+/*
+ * STAGE_STORY - Show the lead up story
+ */
+void* story_enter(Stage* st, void*)
+{
+    INTRO_CON;
+
+    // no more text entry, so disable the text cursor
+    ic->menuArea.hideCursor();
+
+    ic->saveGroup = xu4_setResourceGroup(INTRO_RES);
+    ic->beastiesVisible = false;
+
+    ImageInfo* tree = xu4.imageMgr->get(BKGD_TREE);
+    ic->egaGraphics = tree && (tree->getFilename().compare(0, 3, "u4/") == 0);
+
+    ic->gateAnimator = new GateAnimator;
+
+    // Begin the 24 story scenes.
+    ic->dstate = 0;
+    ic->showStory(st, 0);
+
+    return ic;
+}
+
+void story_leave(Stage* st)
+{
+    INTRO_CON_ST;
+
+    delete ic->gateAnimator;
+    ic->gateAnimator = NULL;
+
+    xu4_setResourceGroup(ic->saveGroup);
+}
+
+int story_dispatch(Stage* st, const InputEvent* ev)
+{
+    INTRO_CON_ST;
+    if (input_anykey(ev) == INPUT_DONE) {
+        ic->dstate++;
+        if (ic->dstate < 24) {
+            ic->showStory(st, ic->dstate);
+        } else {
+            stage_run(STAGE_GYPSY);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+// storyInd is 0-23.
+void IntroController::showStory(Stage* st, int storyInd)
+{
+    Symbol bg = 0;
+
+    if (storyInd == 0)
+        bg = BKGD_TREE;
+    else if (storyInd == 6)
+        bg = BKGD_PORTAL;
+    else if (storyInd == 11)
+        bg = BKGD_TREE;
+    else if (storyInd == 15)
+        bg = BKGD_OUTSIDE;
+    else if (storyInd == 17)
+        bg = BKGD_INSIDE;
+    else if (storyInd == 20)
+        bg = BKGD_WAGON;
+    else if (storyInd == 21)
+        bg = BKGD_GYPSY;
+    else if (storyInd == 23)
+        bg = BKGD_ABACUS;
+
+    if (bg)
+        backgroundArea.draw(bg);
+
+    showText(binData->introText[storyInd]);
+
+    switch (storyInd) {
+        case 3:
+            questionArea.hideCursor();
+            gateAnimator->initialize(IMG_MOONGATE, egaGraphics);
+            stage_run(STAGE_GATE);
+            return;
+        case 5:
+            questionArea.hideCursor();
+            gateAnimator->initialize(IMG_ITEMS, egaGraphics);
+            stage_run(STAGE_GATE);
+            return;
+        case 20:
+            soundSpeakLine(VOICE_GYPSY, 0);
+            break;
+        case 22:
+            soundSpeakLine(VOICE_GYPSY, 1);
+            break;
+        case 23:
+            soundSpeakLine(VOICE_GYPSY, 2);
+            break;
+    }
+
+    // enable the cursor here to avoid drawing in undesirable locations
+    questionArea.showCursor();
+}
+
+/*
+ * STAGE_GATE - Animate moongate for tree story scenes 3 & 5.
+ */
+void* gate_enter(Stage* st, void*)
+{
+    INTRO_CON;
+    stage_startMsecTimer(st, 41);
+    return ic;
+}
+
+int gate_dispatch(Stage* st, const InputEvent* ev)
+{
+    if (ev->type == IE_MSEC_TIMER) {
+        INTRO_CON_ST;
+        if (! ic->gateAnimator->nextFrame(ic)) {
+            ic->questionArea.showCursor();
+            stage_done();
+        }
+    }
+    return 0;
+}
+
+static uint8_t originTable[6] = {
+    12, 12, 218,    // EGA
+    22, 16, 218,    // Utne
+};
+
+/*
+ * STAGE_GYPSY
+ *
  * Starts the gypsys questioning that eventually determines the new
  * characters class.
  */
-void IntroController::startQuestions() {
-    static uint8_t originTable[6] = {
-        12, 12, 218,    // EGA
-        22, 16, 218,    // Utne
-    };
-    uint8_t* origin = originTable;
-    if (! egaGraphics)
-        origin += 3;
+void* gypsy_enter(Stage* st, void*)
+{
+    INTRO_CON;
 
-    questionRound = 0;
-    initQuestionTree();
+    ic->beastiesVisible = false;
 
-    abacusImg = xu4.imageMgr->get(BKGD_ABACUS);
+    ImageInfo* abacusImg = xu4.imageMgr->get(BKGD_ABACUS);
     if (! abacusImg)
         errorLoadImage(BKGD_ABACUS);
+    ic->abacusImg = abacusImg;
 
     Symbol sym[3];
     xu4.config->internSymbols(sym, 3, "whitebead blackbead bead_pos");
-    beadSub[0] = abacusImg->subImageIndex[sym[0]];
-    beadSub[1] = abacusImg->subImageIndex[sym[1]];
-    beadSub[2] = abacusImg->subImageIndex[sym[2]];
+    ic->beadSub[0] = abacusImg->subImageIndex[sym[0]];
+    ic->beadSub[1] = abacusImg->subImageIndex[sym[1]];
+    ic->beadSub[2] = abacusImg->subImageIndex[sym[2]];
 
-    const vector<string>& gypsyText = binData->introGypsy;
-    int i1, i2, n;
+    ic->origin = originTable;
+    if (! ic->egaGraphics)
+        ic->origin += 3;
 
-    while (xu4.stage == StageIntro) {
-        // draw the abacus background, if necessary
-        if (questionRound == 0) {
-            abacusImg->image->draw(0, 0);
-            n = GYP_PLACES_FIRST;
-        } else {
-            n = (questionRound == 6) ? GYP_PLACES_LAST : GYP_PLACES_TWOMORE;
+    ic->questionRound = 0;
+    ic->initQuestionTree();
+    ic->questionArea.hideCursor();
+    abacusImg->image->draw(0, 0);
+
+    ic->dstate = 0;
+    ic->showQuestion(st, 0);
+    return ic;
+}
+
+int gypsy_dispatch(Stage* st, const InputEvent* ev)
+{
+    INTRO_CON_ST;
+    int answer;
+
+    switch (ic->dstate) {
+    case 0:
+        if (ev->type == IE_MSEC_TIMER)
+            goto next_state;
+        break;
+
+    case 1:
+        if (ev->type == IE_MSEC_TIMER) {
+            stage_stopMsecTimer(st);
+            goto next_state;
         }
+        break;
 
-        i1 = questionRound * 2;
-        i2 = i1 + 1;
+    case 2:
+        if (input_anykey(ev) == INPUT_DONE)
+            goto next_state;
+        break;
+
+    case 3:
+        if (input_choiceDispatch("ab", ev, &answer) == INPUT_DONE) {
+            // update the question tree
+            if (ic->doQuestion((answer == 'a') ? 0 : 1)) {
+                stage_run(STAGE_BEGIN);
+                return 1;
+            }
+            ic->dstate = 0;     // Reset for next question.
+            goto show;
+        }
+        break;
+    }
+    return 0;
+
+next_state:
+    ic->dstate++;
+show:
+    ic->showQuestion(st, ic->dstate);
+    return 1;
+}
+
+void IntroController::showQuestion(Stage* st, int state)
+{
+    const vector<string>& gypsyText = binData->introGypsy;
+    int i0 = questionRound * 2;
+    int n;
+
+    switch (state) {
+    case 0:
+        if (questionRound == 0)
+            n = GYP_PLACES_FIRST;
+        else
+            n = (questionRound == 6) ? GYP_PLACES_LAST : GYP_PLACES_TWOMORE;
 
         // draw the cards and show the lead up text
 
@@ -1061,17 +1416,26 @@ void IntroController::startQuestions() {
         questionArea.clear();
         questionArea.textAt(0, 0, gypsyText[n].c_str());
         questionArea.textAt(0, 1, gypsyText[GYP_UPON_TABLE].c_str());
-        EventHandler::wait_msecs(1000);
+        stage_startMsecTimer(st, 1000);
+        break;
 
-        const string& virtue1 = gypsyText[questionTree[i1] + 4];
+    case 1:
+    {
+        const string& virtue1 = gypsyText[questionTree[i0] + 4];
         questionArea.textAtFmt(0, 2, "%s and", virtue1.c_str());
-        drawCard(0, questionTree[i1], origin);
-        EventHandler::wait_msecs(1000);
+        drawCard(0, questionTree[i0], origin);
+        //stage_startMSecTimer(st, 1000);   // Timer still running.
+    }
+        break;
 
+    case 2:
+    {
+        const string& virtue1 = gypsyText[questionTree[i0] + 4];
+        n = i0 + 1;
         soundSpeakLine(VOICE_GYPSY, 3);
         questionArea.textAtFmt(virtue1.size() + 4, 2, " %s.  She says",
-                               gypsyText[questionTree[i2] + 4].c_str());
-        drawCard(1, questionTree[i2], origin);
+                               gypsyText[questionTree[n] + 4].c_str());
+        drawCard(1, questionTree[n], origin);
         questionArea.textAt(0, 3, "\"Consider this:\"");
         questionArea.showCursor();
 
@@ -1079,20 +1443,18 @@ void IntroController::startQuestions() {
         U4IOS::switchU4IntroControllerToContinueButton();
 #endif
         // wait for a key
-        EventHandler::waitAnyKey();
+    }
+        break;
 
+    case 3:
         // show the question to choose between virtues
-        showText(getQuestion(questionTree[i1], questionTree[i2]));
-
+        showText(getQuestion(questionTree[i0], questionTree[i0 + 1]));
+        questionArea.showCursor();
 #ifdef IOS
         U4IOS::switchU4IntroControllerToABButtons();
 #endif
         // wait for an answer
-        int choice = EventHandler::readChoice("ab");
-
-        // update the question tree
-        if (doQuestion(choice == 'a' ? 0 : 1))
-            return;
+        break;
     }
 }
 
@@ -1118,41 +1480,192 @@ string IntroController::getQuestion(int v1, int v2) {
     return binData->introQuestions[i + v2 - 1];
 }
 
-/**
- * Starts the game.
+/*
+ * Return error message or NULL if successful.
  */
-void IntroController::journeyOnward() {
-    // Return to a running game or attempt to load a saved one.
-    if (xu4.saveGame || saveGameLoad()) {
-        xu4.stage = StagePlay;
-        xu4.eventHandler->setControllerDone();
-    } else {
-        updateScreen();     // Shows errorMessage set by saveGameLoad().
+const char* IntroController::createSaveGame()
+{
+    delete xu4.saveGame;
+    xu4.saveGame = NULL;    // Make GameController::init() reload the game.
+
+    FILE *saveGameFile = fopen((xu4.settings->getUserPath() + PARTY_SAV).c_str(), "wb");
+    if (! saveGameFile)
+        return "Unable to create save game!";
+
+    {
+    SaveGame saveGame;
+    SaveGamePlayerRecord avatar;
+
+    avatar.init();
+    strcpy(avatar.name, nameBuffer.c_str());
+    avatar.sex = (sex == 'm') ? SEX_MALE : SEX_FEMALE;
+
+    saveGame.init(&avatar);
+    initPlayers(&saveGame);
+    saveGame.food = 30000;
+    saveGame.gold = 200;
+    saveGame.reagents[REAG_GINSENG] = 3;
+    saveGame.reagents[REAG_GARLIC] = 4;
+    saveGame.torches = 2;
+    saveGame.write(saveGameFile);
     }
+
+    fclose(saveGameFile);
+
+    saveGameFile = fopen((xu4.settings->getUserPath() + MONSTERS_SAV).c_str(), "wb");
+    if (saveGameFile) {
+        saveGameMonstersWrite(NULL, saveGameFile);
+        fclose(saveGameFile);
+    }
+    return NULL;
+}
+
+/*
+ * STAGE_BEGIN - Write out save game and segue into game.
+ */
+void* begin_enter(Stage* st, void*)
+{
+    INTRO_CON;
+
+    const char* err = ic->createSaveGame();
+    if (err) {
+        ic->questionArea.hideCursor();
+        xu4.errorMessage = err;
+        stage_run(STAGE_IERROR);
+        return NULL;
+    }
+
+    ic->justInitiatedNewGame = true;
+
+    // show the text that segues into the main game
+    ic->showText(ic->binData->introGypsy[GYP_SEGUE1]);
+    ic->questionArea.showCursor();
+    soundSpeakLine(VOICE_GYPSY, 4);
+#ifdef IOS
+    U4IOS::switchU4IntroControllerToContinueButton();
+#endif
+    ic->dstate = 0;
+    return ic;
+}
+
+int begin_dispatch(Stage* st, const InputEvent* ev)
+{
+    INTRO_CON_ST;
+    switch (ic->dstate) {
+    case 0:
+        if (input_anykey(ev) == INPUT_DONE) {
+            ic->showText(ic->binData->introGypsy[GYP_SEGUE2]);
+            ic->dstate++;
+            return 1;
+        }
+        break;
+    case 1:
+        if (input_anykey(ev) == INPUT_DONE) {
+            // done: exit intro and let game begin
+            ic->questionArea.hideCursor();
+            stage_run(STAGE_PLAY);
+            return 1;
+        }
+        break;
+    }
+    return 0;
 }
 
 /**
- * Shows an about box.
+ * Starts the game.
  */
-void IntroController::about() {
+void IntroController::journeyOnward(Stage* st) {
+    // Return to a running game or attempt to load a saved one.
+    if (xu4.saveGame || saveGameLoad())
+        stage_run(STAGE_PLAY);
+    else {
+        // Show the errorMessage set by saveGameLoad().
+        stage_run(STAGE_IERROR);
+    }
+}
+
+
+/*
+ * STAGE_SETMENU - Show settings menus
+ */
+void* setmenu_enter(Stage*, void*)
+{
+    INTRO_CON;
+    SettingsMenus* menus = ic->menus;
+
+    if (! menus) {
+       ic->menus = menus = new SettingsMenus;
+    }
+
+    // Make a copy of our settings so we can change them
+    menus->settingsChanged = *xu4.settings;
+    screenShowCursor();
+    menus->listenerId = gs_listen(1<<SENDER_MENU, menus->menusNotice, menus);
+
+    menus->showMenu(&menus->confMenu);
+    menus->drawMenu();
+
+    return ic;
+}
+
+void setmenu_leave(Stage* st)
+{
+    INTRO_CON_ST;
+
+    gs_unplug(ic->menus->listenerId);
+    //screenShowCursor();
+    ic->updateScreen();
+    screenUploadToGPU();
+}
+
+int setmenu_dispatch(Stage* st, const InputEvent* ev)
+{
+    if (ev->type == IE_KEY_PRESS) {
+        INTRO_CON_ST;
+        SettingsMenus* menus = ic->menus;
+        int res = input_menuDispatch(menus->active, ev->n);
+        if (res == INPUT_DONE) {
+            if (menus->active == &menus->confMenu)
+                stage_done();
+            else
+                menus->showMenu(&menus->confMenu);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+
+/**
+ * STAGE_ABOUT - Shows an about box.
+ */
+void* about_enter(Stage*, void*)
+{
+    INTRO_CON;
+
     // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_INTRO);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
+    ic->backgroundArea.draw(BKGD_INTRO);
+    ic->backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
 
     screenHideCursor();
-    menuArea.textAtFmt(14, 1, "XU4 %s", VERSION);
-    menuArea.textAt(1, 3, "xu4 is free software; you can redist-");
-    menuArea.textAt(1, 4, "ribute it and/or modify it under the");
-    menuArea.textAt(1, 5, "terms of the GNU GPL as published by");
-    menuArea.textAt(1, 6, "the FSF.  See COPYING.");
-    menuArea.textAt(4, 8, "Copyright \011 2002-2022, xu4 Team");
-    menuArea.textAt(4, 9, "Copyright \011 1987, Lord British");
-    drawBeasties();
+    ic->menuArea.textAtFmt(14, 1, "XU4 %s", VERSION);
+    ic->menuArea.textAt(1, 3, "xu4 is free software; you can redist-");
+    ic->menuArea.textAt(1, 4, "ribute it and/or modify it under the");
+    ic->menuArea.textAt(1, 5, "terms of the GNU GPL as published by");
+    ic->menuArea.textAt(1, 6, "the FSF.  See COPYING.");
+    ic->menuArea.textAt(4, 8, "Copyright \011 2002-2022, xu4 Team");
+    ic->menuArea.textAt(4, 9, "Copyright \011 1987, Lord British");
+    ic->drawBeasties();
 
-    EventHandler::waitAnyKey();
+    return ic;
+}
+
+void about_leave(Stage* st)
+{
+    INTRO_CON_ST;
 
     screenShowCursor();
-    updateScreen();
+    ic->updateScreen();
 }
 
 /**
@@ -1173,26 +1686,6 @@ void IntroController::showText(const string &text) {
 
     /* write the last line (possibly only line) */
     questionArea.textAt(0, lineNo++, current.substr(0, pos).c_str());
-}
-
-/**
- * Run a menu and return when the menu has been closed.  Screen
- * updates are handled by observing the menu.
- */
-void IntroController::runMenu(Menu *menu, TextView *view, bool withBeasties) {
-    menu->reset();
-
-    // if the menu has an extended height, fill the menu background, otherwise reset the display
-    menu->show(view);
-    if (withBeasties)
-        drawBeasties();
-
-    MenuController menuController(menu, view);
-    xu4.eventHandler->pushController(&menuController);
-    menuController.waitFor();
-
-    // enable the cursor here, after the menu has been established
-    view->hideCursor();
 }
 
 /**
@@ -1228,289 +1721,6 @@ void IntroController::timerFired() {
 }
 
 /**
- * Update the screen when an observed menu is reset or has an item
- * activated.
- * TODO, reduce duped code.
- */
-void IntroController::introNotice(int sender, void* eventData, void* user) {
-    MenuEvent* event = (MenuEvent*) eventData;
-    ((IntroController*) user)->dispatchMenu(event->menu, *event);
-}
-
-void IntroController::dispatchMenu(const Menu *menu, MenuEvent &event) {
-    if (menu == &confMenu)
-        updateConfMenu(event);
-    else if (menu == &videoMenu)
-        updateVideoMenu(event);
-    else if (menu == &gfxMenu)
-        updateGfxMenu(event);
-    else if (menu == &soundMenu)
-        updateSoundMenu(event);
-    else if (menu == &inputMenu)
-        updateInputMenu(event);
-    else if (menu == &speedMenu)
-        updateSpeedMenu(event);
-    else if (menu == &gameplayMenu)
-        updateGameplayMenu(event);
-    else if (menu == &interfaceMenu)
-        updateInterfaceMenu(event);
-
-    // beasties are always visible on the menus
-    drawBeasties();
-}
-
-void IntroController::updateConfMenu(MenuEvent &event) {
-    if (event.type == MenuEvent::ACTIVATE ||
-        event.type == MenuEvent::INCREMENT ||
-        event.type == MenuEvent::DECREMENT) {
-
-        // show or hide game enhancement options if enhancements are enabled/disabled
-        confMenu.getItemById(MI_CONF_GAMEPLAY)->setVisible(settingsChanged.enhancements);
-        confMenu.getItemById(MI_CONF_INTERFACE)->setVisible(settingsChanged.enhancements);
-
-        // save settings
-        xu4.settings->setData(settingsChanged);
-        xu4.settings->write();
-
-        switch(event.item->getId()) {
-        case MI_CONF_VIDEO:
-            runMenu(&videoMenu, &extendedMenuArea, true);
-            break;
-        case MI_VIDEO_CONF_GFX:
-            runMenu(&gfxMenu, &extendedMenuArea, true);
-            break;
-        case MI_CONF_SOUND:
-            runMenu(&soundMenu, &extendedMenuArea, true);
-            break;
-        case MI_CONF_INPUT:
-            runMenu(&inputMenu, &extendedMenuArea, true);
-            break;
-        case MI_CONF_SPEED:
-            runMenu(&speedMenu, &extendedMenuArea, true);
-            break;
-        case MI_CONF_GAMEPLAY:
-            runMenu(&gameplayMenu, &extendedMenuArea, true);
-            break;
-        case MI_CONF_INTERFACE:
-            runMenu(&interfaceMenu, &extendedMenuArea, true);
-            break;
-        case CANCEL:
-            // discard settings
-            settingsChanged = *xu4.settings;
-            break;
-        default: break;
-        }
-    }
-
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-}
-
-void IntroController::updateVideoMenu(MenuEvent &event) {
-    if (event.type == MenuEvent::ACTIVATE ||
-        event.type == MenuEvent::INCREMENT ||
-        event.type == MenuEvent::DECREMENT) {
-
-        switch(event.item->getId()) {
-        case USE_SETTINGS:
-            /* save settings (if necessary) */
-            if (*xu4.settings != settingsChanged) {
-                xu4.settings->setData(settingsChanged);
-                xu4.settings->write();
-
-                /* FIXME: resize images, etc. */
-                deleteIntro();  // delete intro stuff
-                screenReInit();
-                init();         // re-fix the backgrounds and scale images, etc.
-
-                // go back to menu mode
-                mode = INTRO_MENU;
-            }
-            break;
-        case MI_VIDEO_CONF_GFX:
-            runMenu(&gfxMenu, &extendedMenuArea, true);
-            break;
-        case CANCEL:
-            // discard settings
-            settingsChanged = *xu4.settings;
-            break;
-        default: break;
-        }
-    }
-
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-}
-
-void IntroController::updateGfxMenu(MenuEvent &event)
-{
-    if (event.type == MenuEvent::ACTIVATE ||
-        event.type == MenuEvent::INCREMENT ||
-        event.type == MenuEvent::DECREMENT) {
-
-
-        switch(event.item->getId()) {
-        case MI_GFX_RETURN:
-            runMenu(&videoMenu, &extendedMenuArea, true);
-            break;
-        default: break;
-        }
-    }
-
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-}
-
-void IntroController::updateSoundMenu(MenuEvent &event) {
-    if (event.type == MenuEvent::ACTIVATE ||
-        event.type == MenuEvent::INCREMENT ||
-        event.type == MenuEvent::DECREMENT) {
-
-        switch(event.item->getId()) {
-            case MI_SOUND_01:
-                musicSetVolume(settingsChanged.musicVol);
-                break;
-            case MI_SOUND_02:
-                soundSetVolume(settingsChanged.soundVol);
-                soundPlay(SOUND_FLEE);
-                break;
-            case USE_SETTINGS:
-                // save settings
-                xu4.settings->setData(settingsChanged);
-                xu4.settings->write();
-                musicPlay(introMusic);
-                break;
-            case CANCEL:
-                musicSetVolume(xu4.settings->musicVol);
-                soundSetVolume(xu4.settings->soundVol);
-                // discard settings
-                settingsChanged = *xu4.settings;
-                break;
-            default: break;
-        }
-    }
-
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-}
-
-void IntroController::updateInputMenu(MenuEvent &event) {
-    if (event.type == MenuEvent::ACTIVATE ||
-        event.type == MenuEvent::INCREMENT ||
-        event.type == MenuEvent::DECREMENT) {
-
-        switch(event.item->getId()) {
-        case USE_SETTINGS:
-            // save settings
-            xu4.settings->setData(settingsChanged);
-            xu4.settings->write();
-
-            // re-initialize keyboard
-            EventHandler::setKeyRepeat(settingsChanged.keydelay, settingsChanged.keyinterval);
-#ifndef IOS
-            screenShowMouseCursor(xu4.settings->mouseOptions.enabled);
-#endif
-            break;
-        case CANCEL:
-            // discard settings
-            settingsChanged = *xu4.settings;
-            break;
-        default: break;
-        }
-    }
-
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-
-    // after drawing the menu, extra menu text can be added here
-    extendedMenuArea.textAt(0, 5, "Mouse Options:");
-}
-
-void IntroController::updateSpeedMenu(MenuEvent &event) {
-    if (event.type == MenuEvent::ACTIVATE ||
-        event.type == MenuEvent::INCREMENT ||
-        event.type == MenuEvent::DECREMENT) {
-
-        switch(event.item->getId()) {
-        case USE_SETTINGS:
-            // save settings
-            xu4.settings->setData(settingsChanged);
-            xu4.settings->write();
-
-            // re-initialize events
-            xu4.eventHandler->setTimerInterval(1000 /
-                                        xu4.settings->gameCyclesPerSecond);
-            break;
-        case CANCEL:
-            // discard settings
-            settingsChanged = *xu4.settings;
-            break;
-        default: break;
-        }
-    }
-
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-}
-
-void IntroController::updateGameplayMenu(MenuEvent &event) {
-    if (event.type == MenuEvent::ACTIVATE ||
-        event.type == MenuEvent::INCREMENT ||
-        event.type == MenuEvent::DECREMENT) {
-
-        switch(event.item->getId()) {
-        case USE_SETTINGS:
-            // save settings
-            xu4.settings->setData(settingsChanged);
-            xu4.settings->write();
-            break;
-        case CANCEL:
-            // discard settings
-            settingsChanged = *xu4.settings;
-            break;
-        default: break;
-        }
-    }
-
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-}
-
-void IntroController::updateInterfaceMenu(MenuEvent &event) {
-    if (event.type == MenuEvent::ACTIVATE ||
-        event.type == MenuEvent::INCREMENT ||
-        event.type == MenuEvent::DECREMENT) {
-
-        switch(event.item->getId()) {
-            case USE_SETTINGS:
-                // save settings
-                xu4.settings->setData(settingsChanged);
-                xu4.settings->write();
-                break;
-            case CANCEL:
-                // discard settings
-                settingsChanged = *xu4.settings;
-                break;
-            default: break;
-        }
-    }
-
-    // draw the extended background for all option screens
-    backgroundArea.draw(BKGD_OPTIONS_TOP, 0, 0);
-    backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
-
-    // after drawing the menu, extra menu text can be added here
-    extendedMenuArea.textAt(2, 3, "  (Open, Jimmy, etc.)");
-}
-
-/**
  * Initializes the question tree.  The tree starts off with the first
  * eight entries set to the numbers 0-7 in a random order.
  */
@@ -1541,14 +1751,12 @@ void IntroController::initQuestionTree() {
  * the next round.
  * @return true if all questions have been answered, false otherwise
  */
-bool IntroController::doQuestion(int answer) {
-    if (!answer)
-        questionTree[answerInd] = questionTree[questionRound * 2];
-    else
-        questionTree[answerInd] = questionTree[questionRound * 2 + 1];
+bool IntroController::doQuestion(int answerB) {
+    int n = questionRound * 2;
 
+    questionTree[answerInd] = questionTree[ answerB ? n + 1 : n ];
     drawAbacusBeads(questionRound, questionTree[answerInd],
-                    questionTree[questionRound * 2 + ((answer) ? 0 : 1)]);
+                    questionTree[ answerB ? n : n + 1 ]);
 
     answerInd++;
     questionRound++;
@@ -1556,12 +1764,12 @@ bool IntroController::doQuestion(int answer) {
     if (questionRound > 6)
         return true;
 
-    if (questionTree[questionRound * 2] > questionTree[questionRound * 2 + 1]) {
-        int tmp = questionTree[questionRound * 2];
-        questionTree[questionRound * 2] = questionTree[questionRound * 2 + 1];
-        questionTree[questionRound * 2 + 1] = tmp;
+    n = questionRound * 2;
+    if (questionTree[n] > questionTree[n + 1]) {
+        int tmp = questionTree[n];
+        questionTree[n] = questionTree[n + 1];
+        questionTree[n + 1] = tmp;
     }
-
     return false;
 }
 
@@ -1729,7 +1937,7 @@ void IntroController::initTitles()
     title = titles.begin();
 
     // speed up the timer while the intro titles are displayed
-    xu4.eventHandler->setTimerInterval(xu4.settings->titleSpeedOther);
+    xu4.timerInterval = xu4.settings->titleSpeedOther;
 }
 
 
@@ -2144,8 +2352,7 @@ bool IntroController::updateTitle()
         if (title == titles.end())
         {
             // reset the timer to the pre-titles granularity
-            xu4.eventHandler->setTimerInterval(1000 /
-                                        xu4.settings->gameCyclesPerSecond);
+            xu4.timerInterval = 1000 / xu4.settings->gameCyclesPerSecond;
 
             // make sure the titles only appear when the app first loads
             bSkipTitles = true;
@@ -2155,15 +2362,15 @@ bool IntroController::updateTitle()
 
         if (title->method == TITLE)
         {
-            xu4.eventHandler->setTimerInterval(xu4.settings->titleSpeedRandom);
+            xu4.timerInterval = xu4.settings->titleSpeedRandom;
         }
         else if (title->method == MAP)
         {
-            xu4.eventHandler->setTimerInterval(xu4.settings->titleSpeedOther);
+            xu4.timerInterval = xu4.settings->titleSpeedOther;
         }
         else
         {
-            xu4.eventHandler->setTimerInterval(xu4.settings->titleSpeedOther);
+            xu4.timerInterval = xu4.settings->titleSpeedOther;
         }
     }
 
@@ -2203,4 +2410,59 @@ void IntroController::skipTitles()
 {
     bSkipTitles = true;
     soundStop();
+}
+
+void* intro_enter(Stage* st, void*)
+{
+    INTRO_CON;
+
+    xu4._stage = STAGE_INTRO;
+
+    if (! ic)
+        xu4.intro = ic = new IntroController;
+
+    ic->init();
+    ic->preloadMap();
+
+    if (xu4.errorMessage)
+        stage_run(STAGE_IERROR);
+
+    return ic;
+}
+
+void intro_leave(Stage* st)
+{
+    INTRO_CON_ST;
+    ic->deleteIntro();
+}
+
+int intro_dispatch(Stage* st, const InputEvent* ev)
+{
+    INTRO_CON_ST;
+    switch (ev->type) {
+        case IE_CYCLE_TIMER:
+            ic->timerFired();
+            break;
+
+        case IE_KEY_PRESS:
+            return ic->keyPressed(st, ev->n);
+
+        case IE_MOUSE_PRESS:
+            if (ic->mode == IntroController::INTRO_MENU && ev->n == CMOUSE_LEFT)
+            {
+                int cx, cy;
+                ic->menuArea.mouseTextPos(ev->x, ev->y, cx, cy);
+
+                // Matches text position in updateScreen().
+                if (cx >= 10 && cx <= 28) {
+                    if (cy >= 5 && cy <= 9) {
+                        static const char menuKey[] = "rjica";
+                        ic->keyPressed(st,  menuKey[cy - 5]);
+                    }
+                }
+                return 1;
+            }
+            break;
+    }
+    return 0;
 }

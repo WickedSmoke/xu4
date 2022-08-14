@@ -2,10 +2,11 @@
  * game.cpp
  */
 
+#include <cassert>
+
 #include "game.h"
 
 #include "camp.h"
-#include "cheat.h"
 #include "city.h"
 #include "config.h"
 #include "debug.h"
@@ -50,14 +51,17 @@ static void newOrder();
 /* conversation functions */
 static bool talkAt(const Coords &coords, int distance);
 
+
 /* action functions */
+static bool attack();
 static bool attackAt(const Coords &coords);
 static bool destroyAt(const Coords &coords);
 static bool getChestTrapHandler(int player);
+static bool holeUp();
 static bool jimmyAt(const Coords &coords);
 static bool openAt(const Coords &coords);
 static void wearArmor(int player = -1);
-static void ztatsFor(int player = -1);
+static bool ztatsFor(int player = -1);
 
 /* creature functions */
 static void gameFixupObjects(Map *map, const SaveGameMonsterRecord* table);
@@ -72,11 +76,10 @@ static const MouseArea mouseAreas[] = {
     {3, {{  8,  8}, {  8, 184}, {96, 96}}, MC_WEST,  {U4_ENTER, 0, U4_LEFT}},
     {3, {{  8,  8}, {184,   8}, {96, 96}}, MC_NORTH, {U4_ENTER, 0, U4_UP}},
     {3, {{184,  8}, {184, 184}, {96, 96}}, MC_EAST,  {U4_ENTER, 0, U4_RIGHT}},
-    {3, {{  8,184}, {184, 184}, {96, 96}}, MC_SOUTH, {U4_ENTER, 0, U4_DOWN}},
-    {0, {{0,0}, {0,0}, {0,0}}, MC_DEFAULT, {0,0}}
+    {3, {{  8,184}, {184, 184}, {96, 96}}, MC_SOUTH, {U4_ENTER, 0, U4_DOWN}}
 };
 
-GameController::GameController() : TurnController(1),
+GameController::GameController() :
     mapArea(BORDER_WIDTH, BORDER_HEIGHT, VIEWPORT_W, VIEWPORT_H),
     cutScene(false),
     borderAttr(NULL),
@@ -117,7 +120,6 @@ void GameController::conclude() {
     if (borderAttr)
         screenSetLayer(LAYER_HUD, NULL, NULL);
     mapArea.clear();
-    xu4.eventHandler->popMouseAreaSet();
     screenSetMouseCursor(MC_DEFAULT);
 }
 
@@ -152,7 +154,7 @@ void GameController::initScreenWithoutReloadingState()
     screenMessage("Press Alt-h for help\n");
     screenPrompt();
 
-    xu4.eventHandler->pushMouseAreaSet(mouseAreas);
+    activeAreas = xu4.settings->mouseOptions.enabled ? mouseAreas : NULL;
 
     xu4.eventHandler->setScreenUpdate(&gameUpdateScreen);
 }
@@ -186,10 +188,8 @@ bool GameController::initContext() {
 
     /* load in the save game (if not done by intro) */
     if (! xu4.saveGame) {
-        if (! saveGameLoad()) {
-            xu4.stage = StageIntro;     // Go back to intro.
+        if (! saveGameLoad())
             return false;
-        }
     }
     ++pb;
 
@@ -417,14 +417,13 @@ void gameUpdateScreen() {
     }
 }
 
-void GameController::setMap(Map *map, bool saveLocation, const Portal *portal, TurnController *turnCompleter) {
+void GameController::setMap(Map *map, bool saveLocation, const Portal *portal,
+                            TurnController *turnCompleter)
+{
     int viewMode;
     LocationContext context;
     int activePlayer = c->party->getActivePlayer();
     Coords coords;
-
-    if (!turnCompleter)
-        turnCompleter = this;
 
     if (portal)
         coords = portal->start;
@@ -463,7 +462,8 @@ void GameController::setMap(Map *map, bool saveLocation, const Portal *portal, T
         viewMode = VIEW_NORMAL;
         break;
     }
-    c->location = new Location(coords, map, viewMode, context, turnCompleter, c->location);
+    c->location = new Location(coords, map, viewMode, context,
+                               turnCompleter, c->location);
     c->party->setActivePlayer(activePlayer);
 #ifdef IOS
     U4IOS::updateGameControllerContext(c->location->context);
@@ -547,7 +547,7 @@ static void gameCheckDrowning() {
 void GameController::finishTurn() {
     gameStampCommandTime();
 
-    while (xu4.stage == StagePlay) {
+    while (stage_current()) {
         Map* map = c->location->map;
 
         /* adjust food and moves */
@@ -662,9 +662,12 @@ void GameController::gameNotice(int sender, void* eventData, void* user) {
             ((GameController*) user)->avatarMovedInDungeon(*ev);
             break;
 
-        case Map::COMBAT:
+        case Map::COMBAT: {
             // FIXME: let the combat controller handle it
-            dynamic_cast<CombatController *>(xu4.eventHandler->getController())->movePartyMember(*ev);
+            TurnController* tc = c->location->turnCompleter;
+            assert(tc->isCombatController());
+            ((CombatController*) tc)->movePartyMember(*ev);
+        }
             break;
 
         default:
@@ -780,7 +783,7 @@ void gameBadCommand() {
  * The main key handler for the game.  Interpretes each key as a
  * command - 'a' for attack, 't' for talk, etc.
  */
-bool GameController::keyPressed(int key) {
+bool GameController::keyPressed(Stage* st, int key) {
     Settings& settings = *xu4.settings;
     bool valid = true;
     int endTurn = 1;
@@ -950,9 +953,8 @@ bool GameController::keyPressed(int key) {
         case 3:                     /* ctrl-C */
             if (settings.debug) {
                 screenMessage("Cmd (h = help):");
-                CheatMenuController cheatMenuController(this);
-                xu4.eventHandler->pushController(&cheatMenuController);
-                cheatMenuController.waitFor();
+                stage_run(STAGE_CHEAT);
+                return true;
             }
             else valid = false;
             break;
@@ -988,7 +990,7 @@ bool GameController::keyPressed(int key) {
             }
             break;
 
-        case ' ':
+        case U4_SPACE:
             screenMessage("Pass\n");
             break;
 
@@ -1005,8 +1007,7 @@ bool GameController::keyPressed(int key) {
                     settings.gameCyclesPerSecond = DEFAULT_CYCLES_PER_SECOND;
 
                 if (old_cycles != settings.gameCyclesPerSecond) {
-                    xu4.eventHandler->setTimerInterval(1000 /
-                                                settings.gameCyclesPerSecond);
+                    xu4.timerInterval = 1000 / settings.gameCyclesPerSecond;
 
                     if (settings.gameCyclesPerSecond == DEFAULT_CYCLES_PER_SECOND)
                         screenMessage("Speed: Normal\n");
@@ -1048,7 +1049,8 @@ bool GameController::keyPressed(int key) {
             break;
 
         case 'a':
-            attack();
+            if (attack())
+                return true;
             break;
 
         case 'b':
@@ -1092,9 +1094,8 @@ bool GameController::keyPressed(int key) {
             break;
 
         case 'h':
-            // FIXME: The entire resting scene should not be run inside the
-            // key handler.
-            holeUp();
+            if (holeUp())
+                return true;
             break;
 
         case 'i':
@@ -1253,7 +1254,10 @@ bool GameController::keyPressed(int key) {
             break;
 
         case 'z':
-            ztatsFor();
+            if (ztatsFor()) {
+                stage_run(STAGE_STATS);
+                return true;
+            }
             break;
 
         case 'c' + U4_ALT:
@@ -1339,28 +1343,25 @@ bool GameController::keyPressed(int key) {
         }
 
         case 'q' + U4_ALT:
-            {
-                // TODO - implement loop in main() and let quit fall back to there
-                // Quit to the main menu
-                endTurn = false;
-
-                screenMessage("Quit to menu?");
-                char choice = EventHandler::readChoice("yn \n\033");
-                if (choice != 'y') {
-                    screenMessage("\n");
-                    break;
-                }
-
-                xu4.eventHandler->setScreenUpdate(NULL);
-
-                // Fade out the music and hide the cursor
-                // before returning to the menu.
-                musicFadeOut(1000);
-                screenHideCursor();
-
-                xu4.stage = StageIntro;
-                xu4.eventHandler->setControllerDone();
+        {
+            // Quit to the main menu
+            screenMessage("Quit to menu?");
+            char choice = EventHandler::readChoice("yn \n\033");
+            if (choice != 'y') {
+                screenMessage("\n");
+                break;
             }
+
+            xu4.eventHandler->setScreenUpdate(NULL);
+
+            // Fade out the music and hide the cursor
+            // before returning to the menu.
+            musicFadeOut(1000);
+            screenHideCursor();
+
+            stage_run(STAGE_INTRO);
+            return true;
+        }
             break;
 
         case 'v' + U4_ALT:
@@ -1400,39 +1401,14 @@ bool GameController::keyPressed(int key) {
         }
 
     if (valid && endTurn) {
-        if (xu4.eventHandler->getController() == xu4.game)
-            c->location->turnCompleter->finishTurn();
+        finishTurn();
     }
     else if (!endTurn) {
         /* if our turn did not end, then manually redraw the text prompt */
         screenPrompt();
     }
 
-    return valid || EventHandler::defaultKeyHandler(key);
-}
-
-bool GameController::inputEvent(const InputEvent* ev) {
-    const MouseArea* area;
-
-    if (! xu4.settings->mouseOptions.enabled)
-        return false;
-
-    switch (ev->type) {
-        case IE_MOUSE_MOVE:
-            area = xu4.eventHandler->mouseAreaForPoint(ev->x, ev->y);
-            screenSetMouseCursor(area ? area->cursor : MC_DEFAULT);
-            break;
-
-        case IE_MOUSE_PRESS:
-            area = xu4.eventHandler->mouseAreaForPoint(ev->x, ev->y);
-            if (area && ev->n < 4) {
-                int keyCmd = area->command[ev->n - 1];
-                if (keyCmd)
-                    keyPressed(keyCmd);
-            }
-            break;
-    }
-    return true;
+    return valid;
 }
 
 const char* gameGetInput(int maxlen) {
@@ -1441,8 +1417,7 @@ const char* gameGetInput(int maxlen) {
     U4IOS::IOSConversationHelper helper;
     helper.beginConversation(U4IOS::UIKeyboardTypeDefault);
 #endif
-
-    return EventHandler::readString(maxlen, NULL);
+    return EventHandler::readString(maxlen);
 }
 
 int gameGetPlayer(bool canBeDisabled, bool canBeActivePlayer) {
@@ -1487,22 +1462,18 @@ int gameGetPlayer(bool canBeDisabled, bool canBeActivePlayer) {
     return player;
 }
 
-Direction gameGetDirection() {
-
+static Direction gameGetDirection() {
     screenMessage("Dir?");
 
     Direction dir = EventHandler::readDir();
 
     screenMessage("\b\b\b\b");
 
-    if (dir == DIR_NONE) {
+    if (dir == DIR_NONE)
         screenMessage("    \n");
-        return dir;
-    }
-    else {
+    else
         screenMessage("%s\n", getDirectionName(dir));
-        return dir;
-    }
+    return dir;
 }
 
 bool gameSpellMixHowMany(int spell, int num, Ingredients *ingredients) {
@@ -1544,39 +1515,49 @@ bool gameSpellMixHowMany(int spell, int num, Ingredients *ingredients) {
     return true;
 }
 
-bool ZtatsController::keyPressed(int key) {
-    switch (key) {
-    case U4_UP:
-    case U4_LEFT:
-        c->stats->prevItem();
-        return true;
-    case U4_DOWN:
-    case U4_RIGHT:
-        c->stats->nextItem();
-        return true;
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-        if (c->saveGame->members >= key - '0')
-            c->stats->setView(StatsView(STATS_CHAR1 + key - '1'));
-        return true;
-    case '0':
-        c->stats->setView(StatsView(STATS_WEAPONS));
-        return true;
-    case U4_ESC:
-    case U4_SPACE:
-    case U4_ENTER:
-        c->stats->setView(StatsView(STATS_PARTY_OVERVIEW));
-        doneWaiting();
-        return true;
-    default:
-        return EventHandler::defaultKeyHandler(key);
+/*
+ * STAGE_STATS
+ */
+int stats_dispatch(Stage* st, const InputEvent* ev) {
+    if (ev->type == IE_KEY_PRESS) {
+        int key = ev->n;
+        switch (key) {
+        case U4_UP:
+        case U4_LEFT:
+            c->stats->prevItem();
+            break;
+
+        case U4_DOWN:
+        case U4_RIGHT:
+            c->stats->nextItem();
+            break;
+
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+            if (c->saveGame->members >= key - '0')
+                c->stats->setView(StatsView(STATS_CHAR1 + key - '1'));
+            break;
+
+        case '0':
+            c->stats->setView(StatsView(STATS_WEAPONS));
+            break;
+
+        case U4_ESC:
+        case U4_SPACE:
+        case U4_ENTER:
+            c->stats->setView(StatsView(STATS_PARTY_OVERVIEW));
+            stage_done();
+            break;
+        }
+        return 1;
     }
+    return 0;
 }
 
 void destroy() {
@@ -1619,27 +1600,29 @@ static bool destroyAt(const Coords &coords) {
     return false;
 }
 
-void attack() {
+// Return true if running STAGE_COMBAT.
+static bool attack() {
     screenMessage("Attack: ");
 
     if (c->party->isFlying()) {
         screenMessage("\n%cDrift only!%c\n", FG_GREY, FG_WHITE);
-        return;
+        return false;
     }
 
     Direction dir = gameGetDirection();
-
     if (dir == DIR_NONE)
-        return;
+        return false;
 
-    vector<Coords> path = gameGetDirectionalActionPath(MASK_DIR(dir), MASK_DIR_ALL, c->location->coords,
-                                                                       1, 1, NULL, true);
+    vector<Coords> path =
+        gameGetDirectionalActionPath(MASK_DIR(dir), MASK_DIR_ALL,
+                                     c->location->coords, 1, 1, NULL, true);
     for (vector<Coords>::iterator i = path.begin(); i != path.end(); i++) {
         if (attackAt(*i))
-            return;
+            return true;
     }
 
     screenMessage("%cNothing to Attack!%c\n", FG_GREY, FG_WHITE);
+    return false;
 }
 
 static const Tile* battleGround(const Map* map, const Coords& coord) {
@@ -2073,21 +2056,21 @@ static bool getChestTrapHandler(int player) {
     return false;
 }
 
-void holeUp() {
+static bool holeUp() {
     screenMessage("Hole up & Camp!\n");
 
     if (!(c->location->context & (CTX_WORLDMAP | CTX_DUNGEON))) {
         screenMessage("%cNot here!%c\n", FG_GREY, FG_WHITE);
-        return;
+        return false;
     }
 
     if (c->transportContext != TRANSPORT_FOOT) {
         screenMessage("%cOnly on foot!%c\n", FG_GREY, FG_WHITE);
-        return;
+        return false;
     }
 
-    CombatController *cc = new CampController();
-    cc->beginCombat();
+    stage_runG(STAGE_CAMP, NULL);
+    return true;
 }
 
 /**
@@ -2628,7 +2611,7 @@ static bool mixReagentsForSpellU4(int spell) {
 
     screenMessage("Reagent: ");
 
-    while (xu4.stage == StagePlay) {
+    while (stage_current()) {
         int choice = EventHandler::readChoice("abcdefgh\n\r \033");
 
         // done selecting reagents? mix it up and prompt to mix
@@ -2665,15 +2648,10 @@ static bool mixReagentsForSpellU5(int spell) {
     Ingredients ingredients;
 
     screenHideCursor();
-
-    c->stats->getReagentsMenu()->reset(); // reset the menu, highlighting the first item
-    ReagentsMenuController getReagentsController(c->stats->getReagentsMenu(), &ingredients, c->stats->getMainArea());
-    xu4.eventHandler->pushController(&getReagentsController);
-    getReagentsController.waitFor();
-
+    c->stats->mixReagentsU5(&ingredients);
     c->stats->getMainArea()->hideCursor();
-    screenShowCursor();
 
+    screenShowCursor();
     screenMessage("How many? ");
 
     int howmany = EventHandler::readInt(2);
@@ -2865,13 +2843,13 @@ static void wearArmor(int player) {
 /**
  * Called when the player selects a party member for ztats
  */
-static void ztatsFor(int player) {
+static bool ztatsFor(int player) {
     // get the player if not provided
     if (player == -1) {
         screenMessage("Ztats for: ");
         player = gameGetPlayer(true, false);
         if (player == -1)
-            return;
+            return false;
     }
 
     // Reset the reagent spell mix menu by removing
@@ -2883,9 +2861,7 @@ static void ztatsFor(int player) {
 #ifdef IOS
     U4IOS::IOSHideActionKeysHelper hideExtraControls;
 #endif
-    ZtatsController ctrl;
-    xu4.eventHandler->pushController(&ctrl);
-    ctrl.waitFor();
+    return true;
 }
 
 /**
@@ -2915,12 +2891,12 @@ void GameController::timerFired() {
         /*
          * force pass if no commands within last 20 seconds
          */
-        Controller *controller = xu4.eventHandler->getController();
-        if (dynamic_cast<TurnController *>(controller)) {
+        Stage* st = stage_current();
+        if (st->data == this /*|| st->data == CombatController*/) {
             c->commandTimer += 1000 / xu4.settings->gameCyclesPerSecond;
             if (gameTimeSinceLastCommand() > 20) {
                 /* pass the turn, and redraw the text area prompt */
-                controller->keyPressed(U4_SPACE);
+                keyPressed(st, U4_SPACE);
             }
         }
     }
@@ -3610,3 +3586,65 @@ static void mixReagentsSuper() {
   return;
 }
 #endif
+
+void* game_enter(Stage* st, void*)
+{
+    GAME_CON;
+
+    xu4._stage = STAGE_PLAY;
+
+    if (! gc)
+        xu4.game = gc = new GameController;
+
+    if (! gc->present())
+        stage_run(STAGE_INTRO);
+
+    return gc;
+}
+
+#define GAME_CON_ST     GameController* gc = (GameController*) st->data
+
+void game_leave(Stage* st)
+{
+    GAME_CON_ST;
+    gc->conclude();
+}
+
+int game_dispatch(Stage* st, const InputEvent* ev)
+{
+    GAME_CON_ST;
+
+    switch (ev->type) {
+        case IE_CYCLE_TIMER:
+            gc->timerFired();
+            break;
+
+        case IE_KEY_PRESS:
+            return gc->keyPressed(st, ev->n);
+
+        case IE_MOUSE_MOVE:
+            if (gc->activeAreas) {
+                const MouseArea* area =
+                    xu4.eventHandler->mouseAreaForPoint(gc->activeAreas, 4,
+                                                        ev->x, ev->y);
+                screenSetMouseCursor(area ? area->cursor : MC_DEFAULT);
+                return 1;
+            }
+            break;
+
+        case IE_MOUSE_PRESS:
+            if (gc->activeAreas && ev->n < 4) {
+                const MouseArea* area =
+                    xu4.eventHandler->mouseAreaForPoint(gc->activeAreas, 4,
+                                                        ev->x, ev->y);
+                if (area) {
+                    int keyCmd = area->command[ev->n - 1];
+                    if (keyCmd)
+                        gc->keyPressed(st, keyCmd);
+                    return 1;
+                }
+            }
+            break;
+    }
+    return 0;
+}

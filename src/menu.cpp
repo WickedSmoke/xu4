@@ -251,7 +251,7 @@ Menu::MenuItemList::iterator Menu::getById(int id) {
 /**
  * Returns the menu item associated with the given 'id'
  */
-MenuItem *Menu::getItemById(int id) {
+MenuItem *Menu::itemOfId(int id) {
     current = getById(id);
     if (current != items.end())
         return *current;
@@ -270,7 +270,7 @@ void Menu::activateItem(int id, MenuEvent::Type action) {
 
     /* find the given menu item by id */
     if (id >= 0)
-        mi = getItemById(id);
+        mi = itemOfId(id);
     /* or use the current item */
     else mi = *getCurrent();
 
@@ -305,13 +305,6 @@ bool Menu::activateItemByShortcut(int key, MenuEvent::Type action) {
 }
 
 /**
- * Returns true if the menu has been closed.
- */
-bool Menu::getClosed() const {
-    return closed;
-}
-
-/**
  * Update whether the menu has been closed.
  */
 void Menu::setClosed(bool closed) {
@@ -324,14 +317,7 @@ void Menu::setTitle(const string &text, int x, int y) {
     titleY = y;
 }
 
-MenuController::MenuController(Menu *menu, TextView *view) {
-    this->menu = menu;
-    this->view = view;
-}
-
-bool MenuController::keyPressed(int key) {
-    bool handled = true;
-
+int input_menuDispatch(Menu* menu, int key) {
     switch(key) {
     case U4_UP:
         menu->prev();
@@ -353,16 +339,9 @@ bool MenuController::keyPressed(int key) {
         }
         break;
     default:
-        handled = menu->activateItemByShortcut(key, MenuEvent::ACTIVATE);
+        menu->activateItemByShortcut(key, MenuEvent::ACTIVATE);
+        break;
     }
 
-    menu->show(view);
-
-    view->update();
-
-    if (menu->getClosed())
-        doneWaiting();
-
-    return handled;
+    return menu->isClosed() ? INPUT_DONE : INPUT_WAITING;
 }
-

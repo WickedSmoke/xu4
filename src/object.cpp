@@ -26,8 +26,8 @@ Object::Object(Type type) :
 {}
 
 Object::~Object() {
-    // Must check if exiting game as the eventHandler may already be deleted.
-    if (animId != ANIM_UNUSED && xu4.stage != StageExitGame)
+    // NOTE: The eventHandler may already be deleted if exiting the game.
+    if (animId != ANIM_UNUSED && xu4.eventHandler)
         anim_setState(&xu4.eventHandler->flourishAnim, animId, ANIM_FREE);
 }
 

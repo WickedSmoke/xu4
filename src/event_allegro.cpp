@@ -20,9 +20,7 @@ static void handleActiveEvent(const ALLEGRO_EVENT* event, updateScreenCallback u
 }
 */
 
-static void handleKeyDownEvent(const ALLEGRO_EVENT* event,
-                               Controller *controller,
-                               updateScreenCallback updateScreen) {
+static int translateKey(const ALLEGRO_EVENT* event) {
     int key;
     int keycode = event->keyboard.keycode;
 
@@ -77,32 +75,31 @@ static void handleKeyDownEvent(const ALLEGRO_EVENT* event,
                key);
     }
 
-    /* handle the keypress */
-    if (controller->notifyKeyPressed(key)) {
-        if (updateScreen)
-            (*updateScreen)();
-    }
+    return key;
 }
 
-/*
- * \param waitCon  Input events are passed to this controller if not NULL.
- *                 Otherwise EventHandler::getController() (the currently
- *                 active one) will be used.
- */
-void EventHandler::handleInputEvents(Controller* waitCon,
-                                     updateScreenCallback update) {
+void screenHandleEvents(updateScreenCallback update) {
     static const uint8_t mouseButtonMap[4] = { 0, 1, 3, 2 };
     ALLEGRO_EVENT event;
     InputEvent ie;
-    Controller* controller = waitCon;
+    Stage* st = stage_current();
+    if (! st)
+        return;
 
     while (al_get_next_event(SA->queue, &event)) {
         switch (event.type) {
         //case ALLEGRO_EVENT_KEY_DOWN:
         case ALLEGRO_EVENT_KEY_CHAR:
-            if (! waitCon)
-                controller = getController();
-            handleKeyDownEvent(&event, controller, update);
+        {
+            ie.type = IE_KEY_PRESS;
+            ie.n = translateKey(&event);
+            int processed = st->dispatch(st, &ie);
+            if (! processed)
+                processed = EventHandler::globalKeyHandler(ie.n);
+
+            if (processed && update)
+                (*update)();
+        }
             break;
 
         case ALLEGRO_EVENT_MOUSE_BUTTON_DOWN:
@@ -117,9 +114,7 @@ mouse_pos:
             ie.y = event.mouse.y;
 mouse_event:
             ie.state = 0;
-            if (! waitCon)
-                controller = getController();
-            controller->inputEvent(&ie);
+            st->dispatch(st, &ie);
             break;
 
         case ALLEGRO_EVENT_MOUSE_BUTTON_UP:
@@ -143,7 +138,7 @@ mouse_event:
             break;
         */
         case ALLEGRO_EVENT_DISPLAY_CLOSE:
-            quitGame();
+            stage_exit();
             break;
 #if 0
         // For mobile devices...
@@ -154,12 +149,4 @@ mouse_event:
             break;
         }
     }
-}
-
-/**
- * Sets the key-repeat characteristics of the keyboard.
- */
-int EventHandler::setKeyRepeat(int delay, int interval) {
-    //return SDL_EnableKeyRepeat(delay, interval);
-    return 0;
 }

@@ -494,53 +494,71 @@ void StatsArea::resetReagentsMenu() {
 
 /**
  * Handles spell mixing for the Ultima V-style menu-system
+ * Fills the passed in Ingredients with the selected reagents.
  */
-bool ReagentsMenuController::keyPressed(int key) {
+void StatsArea::mixReagentsU5(Ingredients* ing) {
+    ingredients = ing;
+
+    // reset the menu, highlighting the first item
+    reagentsMixMenu.reset();
+    reagentsMixMenu.show(&mainArea);
+
+    stage_runG(STAGE_MIXIN5, this);
+    mainLoop(&xu4.loop);
+}
+
+/*
+ * STAGE_MIXIN5
+ */
+int mixin5_dispatch(Stage* st, const InputEvent* ev) {
+    if (ev->type != IE_KEY_PRESS)
+        return 0;
+
+    StatsArea* stats = (StatsArea*) st->data;
+    Menu* menu = &stats->reagentsMixMenu;
+    Ingredients* ingredients = stats->ingredients;
+    int key = ev->n;
+
     switch(key) {
-    case 'a':
-    case 'b':
-    case 'c':
-    case 'd':
-    case 'e':
-    case 'f':
-    case 'g':
-    case 'h':
-        {
-            /* select the corresponding reagent (if visible) */
-            Menu::MenuItemList::iterator mi = menu->getById(key-'a');
-            if ((*mi)->isVisible()) {
-                menu->setCurrent(menu->getById(key-'a'));
-                keyPressed(U4_SPACE);
-            }
-        } break;
     case U4_LEFT:
     case U4_RIGHT:
     case U4_SPACE:
+select:
         if (menu->isVisible()) {
             MenuItem *item = *menu->getCurrent();
 
             /* change whether or not it's selected */
-            item->setSelected(!item->isSelected());
+            item->setSelected(! item->isSelected());
 
+            Reagent r = (Reagent) item->getId();
             if (item->isSelected())
-                ingredients->addReagent((Reagent)item->getId());
+                ingredients->addReagent(r);
             else
-                ingredients->removeReagent((Reagent)item->getId());
+                ingredients->removeReagent(r);
         }
         break;
+
     case U4_ENTER:
-        xu4.eventHandler->setControllerDone();
+        stage_abort();
         break;
 
     case U4_ESC:
         ingredients->revert();
-        xu4.eventHandler->setControllerDone();
+        stage_abort();
         break;
 
     default:
-        return MenuController::keyPressed(key);
+        if (key >= 'a' && key <= 'h') {
+            /* select the corresponding reagent (if visible) */
+            int id = key - 'a';
+            Menu::MenuItemList::iterator mi = menu->getById(id);
+            if ((*mi)->isVisible()) {
+                menu->setCurrent(menu->getById(id));
+                goto select;
+            }
+        } else
+            input_menuDispatch(menu, key);
+        break;
     }
-
-    return true;
+    return 1;
 }
-

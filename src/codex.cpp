@@ -111,8 +111,10 @@ void codexStart() {
                 if (codexHandleInfinity(&codex)) {
                     codexHandleEndgame(&codex);
                     codexFree(&codex);
-                    EventHandler::ignoreInput();
-                    return;     // Don't reset view mode - pause forever.
+
+                    // Don't reset view mode - pause forever.
+                    stage_runG(STAGE_FIN, NULL);
+                    return;
                 }
             }
         }
@@ -203,7 +205,7 @@ static void codexEject(CodexEjectCode code) {
 
     /* finally, finish the turn */
     c->location->turnCompleter->finishTurn();
-    xu4.eventHandler->setController(xu4.game);
+    //STAGE xu4.eventHandler->setController(xu4.game);
 }
 
 static void codexImpureThoughts() {

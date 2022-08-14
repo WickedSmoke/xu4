@@ -32,7 +32,7 @@ public:
     int cycles;
     int completedCycles;
     std::vector<std::string> advice;
-    std::string shrineName;     // Temporary storage for name.
+    char shrineName[28];    // Temporary storage for name.
 };
 
 bool shrineCanEnter(const Portal *p);

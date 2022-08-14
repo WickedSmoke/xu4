@@ -8,10 +8,10 @@
 #include <string>
 #include <vector>
 
-#include "controller.h"
 #include "menu.h"
 #include "savegame.h"
 #include "imageview.h"
+#include "stage.h"
 #include "textview.h"
 #include "tileview.h"
 
@@ -65,6 +65,8 @@ private:
     const IntroBinData &operator=(const IntroBinData&);
 };
 
+struct SettingsMenus;
+struct GateAnimator;
 
 /**
  * Controls the title animation sequences, including the traditional
@@ -80,32 +82,19 @@ private:
  *      <li>get rid global intro instance -- should only need to be accessed from u4.cpp</li>
  * </ul>
  */
-class IntroController : public Controller {
+class IntroController {
 public:
     IntroController();
     ~IntroController();
 
     bool hasInitiatedNewGame();
 
-    bool present();
-    void conclude();
-    bool keyPressed(int key);
-    bool inputEvent(const InputEvent*);
+    bool keyPressed(Stage*, int key);
     unsigned char *getSigData();
     void updateScreen();
     void timerFired();
 
-    void updateConfMenu(MenuEvent &event);
-    void updateVideoMenu(MenuEvent &event);
-    void updateGfxMenu(MenuEvent &event);
-    void updateSoundMenu(MenuEvent &event);
-    void updateInputMenu(MenuEvent &event);
-    void updateSpeedMenu(MenuEvent &event);
-    void updateGameplayMenu(MenuEvent &event);
-    void updateInterfaceMenu(MenuEvent &event);
-
-private:
-    static void introNotice(int, void*, void*);
+//STAGE private:
     bool init();
     void preloadMap();
     void deleteIntro();
@@ -118,7 +107,6 @@ private:
     void drawMapAnimated();
     void drawBeasties();
     void drawBeastie(int beast, int vertoffset, int frame);
-    void animateTree(Symbol frame);
     void drawCard(int pos, int card, const uint8_t* origin);
     void drawAbacusBeads(int row, int selectedVirtue, int rejectedVirtue);
 
@@ -126,19 +114,14 @@ private:
     bool doQuestion(int answer);
     void initPlayers(SaveGame *saveGame);
     std::string getQuestion(int v1, int v2);
-    void dispatchMenu(const Menu *menu, MenuEvent &event);
-    void initiateNewGame();
-    void finishInitiateGame(const string &nameBuffer, SexType sex);
-    void startQuestions();
-    void showStory();
-    void journeyOnward();
-    void about();
+    void showStory(Stage*, int storyInd);
+    void showQuestion(Stage*, int state);
+    const char* createSaveGame();
+    void journeyOnward(Stage*);
 #ifdef GPU_RENDER
     void enableMap();
 #endif
     void showText(const string &text);
-
-    void runMenu(Menu *menu, TextView *view, bool withBeasties);
 
     /**
      * The states of the intro.
@@ -149,76 +132,19 @@ private:
         INTRO_MENU                          // displaying the main menu: journey onward, etc.
     } mode;
 
-    enum MenuConstants {
-        MI_CONF_VIDEO,
-        MI_CONF_SOUND,
-        MI_CONF_INPUT,
-        MI_CONF_SPEED,
-        MI_CONF_GAMEPLAY,
-        MI_CONF_INTERFACE,
-        MI_CONF_01,
-        MI_VIDEO_CONF_GFX,
-        MI_VIDEO_02,
-        MI_VIDEO_03,
-        MI_VIDEO_04,
-        MI_VIDEO_05,
-        MI_VIDEO_06,
-        MI_VIDEO_07,
-        MI_VIDEO_08,
-        MI_GFX_TILE_TRANSPARENCY,
-        MI_GFX_TILE_TRANSPARENCY_SHADOW_SIZE,
-        MI_GFX_TILE_TRANSPARENCY_SHADOW_OPACITY,
-        MI_GFX_RETURN,
-        MI_SOUND_01,
-        MI_SOUND_02,
-        MI_SOUND_03,
-        MI_INPUT_01,
-        MI_INPUT_02,
-        MI_INPUT_03,
-        MI_SPEED_01,
-        MI_SPEED_02,
-        MI_SPEED_03,
-        MI_SPEED_04,
-        MI_SPEED_05,
-        MI_SPEED_06,
-        MI_SPEED_07,
-        MI_GAMEPLAY_01,
-        MI_GAMEPLAY_02,
-        MI_GAMEPLAY_03,
-        MI_GAMEPLAY_04,
-        MI_GAMEPLAY_05,
-        MI_GAMEPLAY_06,
-        MI_INTERFACE_01,
-        MI_INTERFACE_02,
-        MI_INTERFACE_03,
-        MI_INTERFACE_04,
-        MI_INTERFACE_05,
-        MI_INTERFACE_06,
-        USE_SETTINGS = 0xFE,
-        CANCEL = 0xFF
-    };
-
     ImageView backgroundArea;
     TextView menuArea;
-    TextView extendedMenuArea;
     TextView questionArea;
     TileView mapArea;
 
     // menus
-    Menu mainMenu;
-    Menu confMenu;
-    Menu videoMenu;
-    Menu gfxMenu;
-    Menu soundMenu;
-    Menu inputMenu;
-    Menu speedMenu;
-    Menu gameplayMenu;
-    Menu interfaceMenu;
+    SettingsMenus* menus;
 
     // data loaded in from title.exe
     IntroBinData *binData;
 
     // additional introduction state data
+    int dstate;             // Stage dispatch state.
     int answerInd;
     int questionRound;
     int questionTree[15];
@@ -281,7 +207,18 @@ private:
     std::vector<AnimElement> titles;            // list of title elements
     std::vector<AnimElement>::iterator title;   // current title element
 
-    int  listenerId;
+    // newgame
+    InputString inString;
+    std::string nameBuffer;
+    int  sex;
+
+    // story
+    uint16_t saveGroup;
+    GateAnimator* gateAnimator;
+
+    // gypsy
+    uint8_t* origin;
+
     int  introMusic;
     bool bSkipTitles;
     bool egaGraphics;

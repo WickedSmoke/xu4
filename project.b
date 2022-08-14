@@ -130,7 +130,6 @@ exe %xu4 [
 		%city.cpp
 		%codex.cpp
 		%combat.cpp
-		%controller.cpp
 		%context.cpp
 		%creature.cpp
 		%death.cpp
@@ -169,6 +168,7 @@ exe %xu4 [
 		%settings.cpp
 		%shrine.cpp
 		%spell.cpp
+		%stage.cpp
 		%stats.cpp
 		%textview.cpp
 		%tileanim.cpp

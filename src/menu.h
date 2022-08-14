@@ -66,12 +66,14 @@ public:
     MenuItemList::iterator  begin_visible();
     void                    reset(bool highlightFirst = true);
     MenuItemList::iterator  getById(int id);
-    MenuItem*               getItemById(int id);
+    MenuItem*               itemOfId(int id);
     void                    activateItem(int id, MenuEvent::Type action);
     bool                    activateItemByShortcut(int key, MenuEvent::Type action);
-    bool                    getClosed() const;
+    bool                    isClosed() const { return closed; }
     void                    setClosed(bool closed);
     void                    setTitle(const string &text, int x, int y);
+
+    bool keyPressed(TextView* view, int key);
 
 private:
     MenuItemList items;
@@ -82,18 +84,6 @@ private:
     int titleX, titleY;
 };
 
-/**
- * This class controls a menu.  The value field of WaitableController
- * isn't used.
- */
-class MenuController : public WaitableController<void *> {
-public:
-    MenuController(Menu *menu, TextView *view);
-    bool keyPressed(int key);
-
-protected:
-    Menu *menu;
-    TextView *view;
-};
+int input_menuDispatch(Menu* menu, int key);
 
 #endif

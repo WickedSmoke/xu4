@@ -306,7 +306,7 @@ bool GameBrowser::present()
     return true;
 }
 
-void GameBrowser::conclude()
+GameBrowser::~GameBrowser()
 {
     free(atree);
     atree = NULL;
@@ -320,7 +320,7 @@ void GameBrowser::conclude()
     infoList.clear();
 }
 
-bool GameBrowser::keyPressed(int key)
+bool GameBrowser::keyPressed(Stage* st, int key)
 {
     switch (key) {
         case U4_ENTER:
@@ -345,15 +345,19 @@ bool GameBrowser::keyPressed(int key)
 
             if (mod_namesEqual(xu4.settings->game, game) &&
                 mod_namesEqual(xu4.settings->soundtrack, music)) {
-                xu4.eventHandler->setControllerDone(true);
+                stage_done();
             } else {
                 xu4.settings->setGame(game);
                 xu4.settings->setSoundtrack(music);
                 xu4.settings->write();
-                xu4.eventHandler->quitGame();
                 xu4.gameReset = 1;
+                stage_exit();
             }
         }
+            return true;
+
+        case U4_ESC:
+            stage_done();
             return true;
 
         case U4_SPACE:
@@ -371,10 +375,6 @@ bool GameBrowser::keyPressed(int key)
         case U4_DOWN:
             if (sel < modFormat.used - 1)
                 ++sel;
-            return true;
-
-        case U4_ESC:
-            xu4.eventHandler->setControllerDone(true);
             return true;
     }
     return false;
@@ -405,29 +405,45 @@ void GameBrowser::selectModule(const GuiArea* area, int y)
     }
 }
 
-bool GameBrowser::inputEvent(const InputEvent* ev)
+void* browser_enter(Stage* st, void*)
 {
+    GameBrowser* gb = new GameBrowser;
+    gb->present();
+    return gb;
+}
+
+void browser_leave(Stage* st)
+{
+    delete (GameBrowser*) st->data;
+}
+
+int browser_dispatch(Stage* st, const InputEvent* ev)
+{
+    GameBrowser* gb = (GameBrowser*) st->data;
     switch (ev->type) {
+        case IE_KEY_PRESS:
+            return gb->keyPressed(st, ev->n);
+
         case IE_MOUSE_PRESS:
             if (ev->n == CMOUSE_LEFT) {
                 const ScreenState* ss = screenState();
                 int x = ev->x - ss->aspectX;
                 int y = (ss->displayH - ev->y) - ss->aspectY;
 
-                const GuiArea* hit = gui_pick(atree, gbox, x, y);
+                const GuiArea* hit = gui_pick(gb->atree, gb->gbox, x, y);
                 if (hit) {
                     switch (hit->wid) {
-                        case WI_LIST:
-                            selectModule((const GuiArea*) hit, y);
+                        case GameBrowser::WI_LIST:
+                            gb->selectModule((const GuiArea*) hit, y);
                             break;
-                        case WI_OK:
-                            keyPressed(U4_ENTER);
+                        case GameBrowser::WI_OK:
+                            gb->keyPressed(st, U4_ENTER);
                             break;
-                        case WI_CANCEL:
-                            keyPressed(U4_ESC);
+                        case GameBrowser::WI_CANCEL:
+                            gb->keyPressed(st, U4_ESC);
                             break;
-                        case WI_QUIT:
-                            xu4.eventHandler->quitGame();
+                        case GameBrowser::WI_QUIT:
+                            stage_exit();
                             break;
                     }
                 }
@@ -436,10 +452,10 @@ bool GameBrowser::inputEvent(const InputEvent* ev)
 
         case IE_MOUSE_WHEEL:
             if (ev->y < 0)
-                keyPressed(U4_DOWN);
+                gb->keyPressed(st, U4_DOWN);
             else if (ev->y > 0)
-                keyPressed(U4_UP);
+                gb->keyPressed(st, U4_UP);
             break;
     }
-    return true;
+    return 1;
 }

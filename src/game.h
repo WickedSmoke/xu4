@@ -7,7 +7,6 @@
 
 #include <vector>
 
-#include "controller.h"
 #include "discourse.h"
 #include "event.h"
 #include "map.h"
@@ -30,21 +29,15 @@ typedef enum {
     VIEW_MIXTURES
 } ViewMode;
 
-/**
- * Controls interaction while Ztats are being displayed.
- */
-class ZtatsController : public WaitableController<void *> {
+class TurnController {
 public:
-    bool keyPressed(int key);
-};
-
-class TurnController : public Controller {
-public:
-    TurnController(short timerInterval) : Controller(timerInterval) {}
     virtual void finishTurn() = 0;
+    virtual bool isCombatController() const { return false; }
 };
 
+struct MouseArea;
 struct ScreenState;
+struct Stage;
 
 /**
  * The main game controller that handles basic game flow and keypresses.
@@ -57,17 +50,17 @@ struct ScreenState;
 class GameController : public TurnController {
 public:
     GameController();
-    ~GameController();
+    virtual ~GameController();
 
     /* controller functions */
-    virtual bool present();
-    virtual void conclude();
-    virtual bool keyPressed(int key);
-    virtual bool inputEvent(const InputEvent*);
-    virtual void timerFired();
+    bool present();
+    void conclude();
+    bool keyPressed(Stage* st, int key);
+    void timerFired();
 
     /* main game functions */
-    void setMap(Map *map, bool saveLocation, const Portal *portal, TurnController *turnCompleter = NULL);
+    void setMap(Map *map, bool saveLocation, const Portal *portal,
+                TurnController *turnCompleter = NULL);
     int exitToParentMap();
     MapId combatMapForTile(const Tile *groundTile, Object *obj);
     virtual void finishTurn();
@@ -78,6 +71,7 @@ public:
     static void flashTile(const Coords &coords, MapTile tile, int timeFactor);
     static void flashTile(const Coords &coords, Symbol tilename, int timeFactor);
 
+    uintptr_t stageArgs[4];
     TileView mapArea;
     Discourse vendorDisc;
     Discourse castleDisc;
@@ -104,7 +98,12 @@ private:
 
     float* borderAttr;
     int borderAttrLen;
+    const MouseArea* activeAreas;
+
+    friend int game_dispatch(Stage*, const InputEvent*);
 };
+
+#define GAME_CON    GameController* gc = xu4.game
 
 /* map and screen functions */
 void gameSetViewMode(ViewMode newMode);
@@ -116,18 +115,15 @@ void gameSpellEffect(int spell, int player, Sound sound);
 
 /* action functions */
 void destroy();
-void attack();
 void board();
 void fire();
 void getChest(int player = -1);
-void holeUp();
 void jimmy();
 void opendoor();
 bool gamePeerCity(int city, void *data);
 void peer(bool useGem = true);
 void talk();
 bool fireAt(const Coords &coords, bool originAvatar);
-Direction gameGetDirection();
 void readyWeapon(int player = -1);
 
 /* creature functions */

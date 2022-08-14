@@ -20,7 +20,6 @@ CXXSRCS=\
         city.cpp \
         codex.cpp \
         combat.cpp \
-        controller.cpp \
         context.cpp \
         creature.cpp \
         death.cpp \
@@ -61,6 +60,7 @@ CXXSRCS=\
         shrine.cpp \
         sound_$(SOUND).cpp \
         spell.cpp \
+        stage.cpp \
         stats.cpp \
         textview.cpp \
         tile.cpp \

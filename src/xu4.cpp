@@ -269,8 +269,7 @@ void servicesInit(XU4GameServices* gs, Options* opt) {
     if (! (opt->flags & OPT_NO_AUDIO))
         soundInit();
 
-    gs->eventHandler = new EventHandler(1000/gs->settings->gameCyclesPerSecond,
-                            1000/gs->settings->screenAnimationFramesPerSecond);
+    gs->eventHandler = new EventHandler(1000/gs->settings->gameCyclesPerSecond);
 
     {
     uint32_t seed;
@@ -298,19 +297,17 @@ void servicesInit(XU4GameServices* gs, Options* opt) {
     well512_init(gs->randomFx, seed);
     }
 
-    gs->stage = (opt->flags & OPT_NO_INTRO) ? StagePlay : StageIntro;
+    stage_runG( (opt->flags & OPT_NO_INTRO) ? STAGE_PLAY : STAGE_INTRO, NULL );
 }
 
 static void servicesFreeGame(XU4GameServices* gs) {
     delete gs->game;
     delete gs->intro;
-    delete gs->gameBrowser;
     delete gs->saveGame;
     delete gs->eventHandler;
 
     gs->game = NULL;
     gs->intro = NULL;
-    gs->gameBrowser = NULL;
     gs->saveGame = NULL;
     gs->eventHandler = NULL;
 
@@ -338,21 +335,117 @@ static void servicesReset(XU4GameServices* gs) {
 
     soundInit();
 
-    gs->eventHandler = new EventHandler(
-                        1000/settings->gameCyclesPerSecond,
-                        1000/settings->screenAnimationFramesPerSecond);
+    gs->eventHandler = new EventHandler(1000/settings->gameCyclesPerSecond);
 
     uint32_t seed = time(NULL);
     xu4_srandom(seed);
     well512_init(gs->randomFx, seed);
 
-    gs->stage = StageIntro;
+    stage_runG(STAGE_INTRO, NULL);
 }
 
 XU4GameServices xu4;
 
+//----------------------------------------------------------------------------
 
-int main(int argc, char *argv[]) {
+#include "stages_u4.cpp"
+#include "support/getTicks.c"
+
+static void frameSleepInit(FrameSleep* fs, int frameDuration) {
+    fs->frameInterval = frameDuration;
+    for (int i = 0; i < 8; ++i)
+        fs->ftime[i] = frameDuration;
+    fs->ftimeSum = frameDuration * 8;
+    fs->ftimeIndex = 0;
+    fs->fsleep = frameDuration - 6;
+    fs->realTime = getTicks();
+}
+
+/*
+ * Return non-zero if waitTime has been reached or passed.
+ */
+static int frameSleep(FrameSleep* fs, uint32_t waitTime) {
+    uint32_t now;
+    int32_t elapsed, elapsedLimit, frameAdjust;
+    int i;
+
+    now = getTicks();
+    elapsed = now - fs->realTime;
+    fs->realTime = now;
+
+    elapsedLimit = fs->frameInterval * 8;
+    if (elapsed > elapsedLimit)
+        elapsed = elapsedLimit;
+
+    i = fs->ftimeIndex;
+    fs->ftimeSum += elapsed - fs->ftime[i];
+    fs->ftime[i] = elapsed;
+    fs->ftimeIndex = i ? i - 1 : FS_SAMPLES - 1;
+
+    frameAdjust = int(fs->frameInterval) - fs->ftimeSum / FS_SAMPLES;
+#if 0
+    // Adjust by 1 msec.
+    if (frameAdjust > 0) {
+        if (fs->fsleep < fs->frameInterval - 1)
+            ++fs->fsleep;
+    } else if (frameAdjust < 0) {
+        if (fs->fsleep)
+            --fs->fsleep;
+    }
+#else
+    // Adjust by 2 msec.
+    if (frameAdjust > 0) {
+        if (frameAdjust > 2)
+            frameAdjust = 2;
+        int sa = int(fs->fsleep) + frameAdjust;
+        int limit = fs->frameInterval - 1;
+        fs->fsleep = (sa > limit) ? limit : sa;
+    } else if (frameAdjust < 0) {
+        if (frameAdjust < -2)
+            frameAdjust = -2;
+        int sa = int(fs->fsleep) + frameAdjust;
+        fs->fsleep = (sa < 0) ? 0 : sa;
+    }
+#endif
+
+    if (waitTime && now >= waitTime)
+        return 1;
+#if 0
+    printf("KR fsleep %d ela:%d avg:%d adj:%d\n",
+           fs->fsleep, elapsed, fs->ftimeSum / FS_SAMPLES, frameAdjust);
+#endif
+    if (fs->fsleep)
+        msecSleep(fs->fsleep);
+    return 0;
+}
+
+void mainLoop(MainLoop* lp)
+{
+    while (stage_transition()) {
+        screenHandleEvents(NULL /*updateScreen*/);
+
+#ifdef DEBUG
+        xu4.eventHandler->emitRecordedKeys();
+#endif
+
+        if (lp->runTime >= xu4.timerInterval) {
+            lp->runTime -= xu4.timerInterval;
+            lp->gameCycle = 1;
+        } else {
+            lp->gameCycle = 0;
+        }
+        stage_tick(lp->gameCycle);
+
+        lp->runTime += lp->fs.frameInterval;
+        xu4.rclock  += lp->fs.frameInterval;
+
+        screenSwapBuffers();
+        frameSleep(&lp->fs, 0);
+    }
+}
+
+int main(int argc, char *argv[])
+{
 #if defined(MACOSX)
     osxInit(argv[0]);
 #endif
@@ -369,6 +462,8 @@ int main(int argc, char *argv[]) {
     if (! parseOptions(&opt, argc-1, argv+1))
         return 0;
 
+    stage_init(stagesU4);
+
     memset(&xu4, 0, sizeof xu4);
     servicesInit(&xu4, &opt);
 
@@ -383,7 +478,6 @@ int main(int argc, char *argv[]) {
             printf("initContext failed!\n");
             status = 1;
         }
-        xu4.stage = StageExitGame;
         servicesFree(&xu4);
         return status;
     }
@@ -404,35 +498,22 @@ int main(int argc, char *argv[]) {
 #endif
 
 begin_game:
-    while( xu4.stage != StageExitGame )
-    {
-        if( xu4.stage == StageIntro ) {
-            /* Show the introduction */
-            if (! xu4.intro)
-                xu4.intro = new IntroController;
-            xu4.eventHandler->runController(xu4.intro);
-        } else {
-            /* Play the game! */
-            if (! xu4.game)
-                xu4.game = new GameController();
-            xu4.eventHandler->runController(xu4.game);
-        }
-    }
+    xu4.loop.runTime = 0;
+    xu4.timerInterval = 1000/xu4.settings->gameCyclesPerSecond,
+    frameSleepInit(&xu4.loop.fs,
+                        1000/xu4.settings->screenAnimationFramesPerSecond);
+
+    mainLoop(&xu4.loop);
 
     if (xu4.gameReset) {
         xu4.gameReset = 0;
+        xu4.rclock = 0;
         servicesReset(&xu4);
         goto begin_game;
     }
 
     servicesFree(&xu4);
     return 0;
-}
-
-void xu4_selectGame() {
-    if (! xu4.gameBrowser)
-        xu4.gameBrowser = new GameBrowser;
-    xu4.eventHandler->runController(xu4.gameBrowser);
 }
 
 /**
@@ -449,8 +530,8 @@ uint16_t xu4_setResourceGroup(uint16_t group) {
  * Free all assets that are part of the specified group.
  */
 void xu4_freeResourceGroup(uint16_t group) {
-    xu4.imageMgr->freeResourceGroup(StageIntro);
-    soundFreeResourceGroup(StageIntro);
+    xu4.imageMgr->freeResourceGroup(group);
+    soundFreeResourceGroup(group);
 }
 
 //----------------------------------------------------------------------------

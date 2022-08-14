@@ -3,6 +3,8 @@
  */
 
 #include "notify.h"
+#include "stage.h"
+#include "stage_id.h"
 #include "stringTable.h"
 
 enum NotifySender {
@@ -30,19 +32,30 @@ class ImageMgr;
 class Image;
 class EventHandler;
 struct SaveGame;
-class GameBrowser;
 class IntroController;
 class GameController;
 
-enum XU4GameStage {
-    StageExitGame,
-    StageIntro,
-    StagePlay
+#define FS_SAMPLES  8
+
+struct FrameSleep {
+    uint32_t frameInterval;     // Milliseconds between display updates.
+    uint32_t realTime;
+    int ftime[FS_SAMPLES];      // Msec elapsed for past frames.
+    int ftimeSum;
+    uint16_t ftimeIndex;
+    uint16_t fsleep;            // Msec to sleep - adjusted slowly.
+};
+
+struct MainLoop {
+    FrameSleep fs;
+    uint32_t runTime;
+    int gameCycle;
 };
 
 struct XU4GameServices {
     StringTable resourcePaths;
     NotifyBus notifyBus;
+    MainLoop loop;
     Settings* settings;
     Config* config;
     ImageMgr* imageMgr;
@@ -52,13 +65,14 @@ struct XU4GameServices {
     Image* screenImage;
     EventHandler* eventHandler;
     SaveGame* saveGame;
-    GameBrowser* gameBrowser;
     IntroController* intro;
     GameController* game;
     const char* errorMessage;
-    uint16_t stage;
     uint16_t resGroup;
+    uint16_t _stage;            // Only used by TileAnimTransform::draw().
     uint16_t gameReset;         // Load another game.
+    uint32_t timerInterval;     // Milliseconds between timedEvents ticks.
+    uint32_t rclock;            // Global "realtime" clock (milliseconds).
     uint32_t randomFx[17];      // Effects random number generator state.
     bool verbose;
 };
@@ -69,7 +83,7 @@ extern XU4GameServices xu4;
 #define gs_unplug(id)               notify_unplug(&xu4.notifyBus,id)
 #define gs_emitMessage(sid,data)    notify_emit(&xu4.notifyBus,sid,data);
 
-void xu4_selectGame();
+void mainLoop(MainLoop*);
 uint16_t xu4_setResourceGroup(uint16_t group);
 void     xu4_freeResourceGroup(uint16_t group);
 extern "C" int xu4_random(int upperval);

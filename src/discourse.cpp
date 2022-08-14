@@ -126,35 +126,76 @@ void discourse_free(Discourse* dis)
 
 extern void talkRunU4Tlk(const Discourse*, int, Person*);
 
+/*
+ * Run discourse stage.
+ * Return false if the discourse could not begin.
+ */
 bool discourse_run(const Discourse* dis, uint16_t entry, Person* npc)
 {
     if (entry >= dis->convCount)
         return false;
 
-    bool talked = false;
-    Controller noTurns;
-    xu4.eventHandler->pushController(&noTurns);
+    if (dis->system == DISCOURSE_CASTLE && entry > 1)
+        return false;
+
+#ifdef CONF_MODULE
+    if (dis->system == DISCOURSE_XU4_TALK) {
+        int32_t blkN = xu4.config->npcTalk(dis->conv.id);
+        if (! blkN)
+            return false;
+    }
+#endif
+
+    {
+    GAME_CON;
+    uintptr_t* arg = gc->stageArgs;
+    arg[0] = (uintptr_t) dis;
+    arg[1] = entry;
+    arg[2] = (uintptr_t) npc;
+
+    stage_runG(STAGE_DISC, arg);
+    }
+    return true;
+}
+
+/*
+ * STAGE_DISC - Having escaped any input handler a new mainLoop can be run.
+ */
+void* disc_enter(Stage* st, void* args) {
+    stage_runArgs(STAGE_DISC_B, args);
+    mainLoop(&xu4.loop);
+    return NULL;
+}
+
+/*
+ * STAGE_DISC_B
+ */
+void* discB_enter(Stage* st, void* args) {
+    uintptr_t* arg = (uintptr_t*) args;
+    const Discourse* dis = (const Discourse*) arg[0];
+    uint16_t entry       = arg[1];
+    Person* npc          = (Person*) arg[2];
+
+    //Controller noTurns;
+    //xu4.eventHandler->pushController(&noTurns);
 
     switch (dis->system) {
     case DISCOURSE_CASTLE:
         c->hawkwindHack = true;
-        talked = talkRunU4Castle(dis, entry, npc);
+        talkRunU4Castle(dis, entry, npc);
         c->hawkwindHack = false;
         break;
 
     case DISCOURSE_U4_TLK:
         talkRunU4Tlk(dis, entry, npc);
-        talked = true;
         break;
 
 #ifdef CONF_MODULE
     case DISCOURSE_XU4_TALK:
     {
         int32_t blkN = xu4.config->npcTalk(dis->conv.id);
-        if (blkN) {
+        if (blkN)
             talkRunBoron(blkN, entry, npc);
-            talked = true;
-        }
     }
         break;
 #endif
@@ -182,12 +223,12 @@ bool discourse_run(const Discourse* dis, uint16_t entry, Person* npc)
 
         pauseFollow(npc);
     }
-        talked = true;
         break;
     }
 
-    xu4.eventHandler->popController();
-    return talked;
+    //xu4.eventHandler->popController();
+    stage_abort();
+    return NULL;
 }
 
 /*

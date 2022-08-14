@@ -65,7 +65,7 @@ static bool slowedByWind(int direction) {
  * should be set if the avatar is being moved in response to a
  * keystroke.  Returns zero if the avatar is blocked.
  */
-static void moveAvatar(MoveEvent &event) {
+static void moveAvatar(Map* map, MoveEvent &event) {
     Coords newCoords;
     int slowed = 0;
     SlowedType slowedType = SLOWED_BY_TILE;
@@ -98,16 +98,16 @@ static void moveAvatar(MoveEvent &event) {
 
     /* figure out our new location we're trying to move to */
     newCoords = c->location->coords;
-    map_move(newCoords, event.dir, c->location->map);
+    map_move(newCoords, event.dir, map);
 
     /* see if we moved off the map */
-    if (MAP_IS_OOB(c->location->map, newCoords)) {
+    if (MAP_IS_OOB(map, newCoords)) {
         event.result = (MoveResult)(MOVE_MAP_CHANGE | MOVE_EXIT_TO_PARENT | MOVE_SUCCEEDED);
         return;
     }
 
     if (!collisionOverride && !c->party->isFlying()) {
-        int movementMask = c->location->map->getValidMoves(c->location->coords, c->party->getTransport());
+        int movementMask = map->getValidMoves(c->location->coords, c->party->getTransport());
         /* See if movement was blocked */
         if (!DIR_IN_MASK(event.dir, movementMask)) {
             event.result = (MoveResult)(MOVE_BLOCKED | MOVE_END_TURN);
@@ -119,7 +119,7 @@ static void moveAvatar(MoveEvent &event) {
         case SLOWED_BY_TILE:
           // TODO: CHEST: Make a user option to not make chests always fast to
           // travel over
-            slowed = slowedByTile(c->location->map->tileTypeAt(newCoords, WITH_OBJECTS));
+            slowed = slowedByTile(map->tileTypeAt(newCoords, WITH_OBJECTS));
             break;
         case SLOWED_BY_WIND:
             slowed = slowedByWind(event.dir);
@@ -140,7 +140,7 @@ static void moveAvatar(MoveEvent &event) {
 
     /* if the avatar moved onto a creature (whirlpool, twister), then do the creature's special effect (this current code does double damage according to changeset 2753.
 
-    Object *destObj = c->location->map->objectAt(newCoords);
+    Object *destObj = map->objectAt(newCoords);
     if (destObj && destObj->getType() == Object::CREATURE) {
         Creature *m = dynamic_cast<Creature*>(destObj);
         //m->specialEffect();
@@ -153,7 +153,7 @@ static void moveAvatar(MoveEvent &event) {
 /**
  * Moves the avatar while in dungeon view
  */
-static void moveAvatarInDungeon(MoveEvent &event) {
+static void moveAvatarInDungeon(Map* map, MoveEvent &event) {
     Coords newCoords;
     Direction realDir = dirNormalize((Direction)c->saveGame->orientation, event.dir); /* get our real direction */
     int advancing = realDir == c->saveGame->orientation,
@@ -172,18 +172,20 @@ static void moveAvatarInDungeon(MoveEvent &event) {
 
     /* figure out our new location */
     newCoords = c->location->coords;
-    map_move(newCoords, realDir, c->location->map);
+    map_move(newCoords, realDir, map);
 
-    tile = c->location->map->tileTypeAt(newCoords, WITH_OBJECTS);
+    tile = map->tileTypeAt(newCoords, WITH_OBJECTS);
 
     /* see if we moved off the map (really, this should never happen in a dungeon) */
-    if (MAP_IS_OOB(c->location->map, newCoords)) {
-        event.result = (MoveResult)(MOVE_MAP_CHANGE | MOVE_EXIT_TO_PARENT | MOVE_SUCCEEDED);
+    if (MAP_IS_OOB(map, newCoords)) {
+        event.result = (MoveResult)(MOVE_MAP_CHANGE | MOVE_EXIT_TO_PARENT |
+                                    MOVE_SUCCEEDED);
         return;
     }
 
     if (!collisionOverride) {
-        int movementMask = c->location->map->getValidMoves(c->location->coords, c->party->getTransport());
+        int movementMask = map->getValidMoves(c->location->coords,
+                                              c->party->getTransport());
 
         if (advancing && !tile->canWalkOn(DIR_ADVANCE))
             movementMask = DIR_REMOVE_FROM_MASK(realDir, movementMask);
@@ -357,61 +359,66 @@ int moveCombatObject(int act, Map *map, Creature *obj, const Coords& target) {
 /**
  * Moves a party member during combat screens
  */
-static void movePartyMember(MoveEvent &event) {
-    CombatController *ct = dynamic_cast<CombatController *>(xu4.eventHandler->getController());
-    CombatMap *cm = getCombatMap();
+static void movePartyMember(CombatController* ct, MoveEvent &event) {
+    CombatMap* map = ct->getMap();
     int member = ct->getFocus();
     Coords newCoords;
     PartyMemberVector *party = ct->getParty();
+    PartyMember* pm = (*party)[member];
 
     event.result = MOVE_SUCCEEDED;
 
     /* find our new location */
-    newCoords = (*party)[member]->coords;
-    map_move(newCoords, event.dir, c->location->map);
+    newCoords = pm->coords;
+    map_move(newCoords, event.dir, map);
 
-    if (MAP_IS_OOB(c->location->map, newCoords)) {
-        bool sameExit = (!cm->isDungeonRoom() || (ct->getExitDir() == DIR_NONE) || (event.dir == ct->getExitDir()));
+    if (MAP_IS_OOB(map, newCoords)) {
+        bool sameExit = (! map->isDungeonRoom() ||
+                         (ct->getExitDir() == DIR_NONE) ||
+                         (event.dir == ct->getExitDir()));
         if (sameExit) {
-            /* if in a win-or-lose battle and not camping, then it can be bad to flee while healthy */
-            if (ct->isWinOrLose() && !ct->isCamping()) {
+            /* if in a win-or-lose battle and not camping, then it can be bad
+             * to flee while healthy */
+            if (ct->isWinOrLose() && ! ct->isCamping()) {
                 /* A fully-healed party member fled from an evil creature :( */
-                if (ct->getCreature() && ct->getCreature()->isEvil() &&
-                    c->party->member(member)->getHp() == c->party->member(member)->getMaxHp())
+                const Creature* creature = ct->getCreature();
+                if (creature && creature->isEvil() &&
+                    pm->getHp() == pm->getMaxHp())
                     c->party->adjustKarma(KA_HEALTHY_FLED_EVIL);
             }
 
             ct->setExitDir(event.dir);
-            c->location->map->removeObject((*party)[member]);
+            map->removeObject(pm);
             (*party)[member] = NULL;
-            event.result = (MoveResult)(MOVE_EXIT_TO_PARENT | MOVE_MAP_CHANGE | MOVE_SUCCEEDED | MOVE_END_TURN);
+            event.result = (MoveResult)(MOVE_EXIT_TO_PARENT | MOVE_MAP_CHANGE |
+                                        MOVE_SUCCEEDED | MOVE_END_TURN);
             return;
-        }
-        else {
+        } else {
             event.result = (MoveResult)(MOVE_MUST_USE_SAME_EXIT | MOVE_END_TURN);
             return;
         }
     }
 
-    int movementMask = c->location->map->getValidMoves((*party)[member]->coords, (*party)[member]->tile);
-    if (!DIR_IN_MASK(event.dir, movementMask)) {
+    int movementMask = map->getValidMoves(pm->coords, pm->tile);
+    if (! DIR_IN_MASK(event.dir, movementMask)) {
         event.result = (MoveResult)(MOVE_BLOCKED | MOVE_END_TURN);
         return;
     }
 
     /* is the party member slowed? */
-    if (!slowedByTile(c->location->map->tileTypeAt(newCoords, WITHOUT_OBJECTS)))
+    if (! slowedByTile(map->tileTypeAt(newCoords, WITHOUT_OBJECTS)))
     {
         /* move succeeded */
-        (*party)[member]->updateCoords(newCoords);
+        pm->updateCoords(newCoords);
 
         /* handle dungeon room triggers */
-        if (cm->isDungeonRoom()) {
+        if (map->isDungeonRoom()) {
             Dungeon *dungeon = dynamic_cast<Dungeon*>(c->location->prev->map);
             int i;
+            int level = c->location->coords.z;
             Trigger *triggers = dungeon->rooms[dungeon->currentRoom].triggers;
 
-            for (i = 0; i < 4; i++) {
+            for (i = 0; i < DNGROOM_NTRIGGERS; i++) {
                 /*const Creature *m = creatures.getByTile(triggers[i].tile);*/
 
                 /* FIXME: when a creature is created by a trigger, it can be created over and over and over...
@@ -423,8 +430,8 @@ static void movePartyMember(MoveEvent &event) {
 
                 /* see if we're on a trigger */
                 if (newCoords == trigger) {
-                    Coords change1(triggers[i].change_x1, triggers[i].change_y1, c->location->coords.z),
-                              change2(triggers[i].change_x2, triggers[i].change_y2, c->location->coords.z);
+                    Coords change1(triggers[i].change_x1, triggers[i].change_y1, level),
+                           change2(triggers[i].change_x2, triggers[i].change_y2, level);
 
                     /**
                      * Remove any previous annotations placed at our target coordinates
@@ -435,18 +442,17 @@ static void movePartyMember(MoveEvent &event) {
 
                     /* change the tiles! */
                     if (change1.x || change1.y) {
-                        /*if (m) combatAddCreature(m, triggers[i].change_x1, triggers[i].change_y1, c->location->coords.z);
+                        /*if (m) combatAddCreature(m, triggers[i].change_x1, triggers[i].change_y1, level);
                         else*/ alist.add(change1, triggers[i].tile, false, true);
                     }
                     if (change2.x || change2.y) {
-                        /*if (m) combatAddCreature(m, triggers[i].change_x2, triggers[i].change_y2, c->location->coords.z);
+                        /*if (m) combatAddCreature(m, triggers[i].change_x2, triggers[i].change_y2, level);
                         else*/ alist.add(change2, triggers[i].tile, false, true);
                     }
                 }
             }
         }
-    }
-    else {
+    } else {
         event.result = (MoveResult)(MOVE_SLOWED | MOVE_END_TURN);
         return;
     }
@@ -664,7 +670,7 @@ TileId Location::getReplacementTile(const Coords& atCoords, const Tile * forTile
  */
 int Location::getCurrentPosition(Coords* pos) {
     if (context & CTX_COMBAT) {
-        CombatController *cc = dynamic_cast<CombatController *>(xu4.eventHandler->getController());
+        CombatController* cc = (CombatController*) turnCompleter;
         PartyMemberVector *party = cc->getParty();
         *pos = (*party)[cc->getFocus()]->coords;
     }
@@ -680,15 +686,15 @@ MoveResult Location::move(Direction dir, bool userEvent) {
     switch (map->type) {
 
     case Map::DUNGEON:
-        moveAvatarInDungeon(event);
+        moveAvatarInDungeon(map, event);
         break;
 
     case Map::COMBAT:
-        movePartyMember(event);
+        movePartyMember((CombatController*) turnCompleter, event);
         break;
 
     default:
-        moveAvatar(event);
+        moveAvatar(map, event);
         break;
     }
 

@@ -2,6 +2,7 @@
  * $Id$
  */
 
+#include <cassert>
 #include <cstring>
 
 #include "spell.h"
@@ -18,7 +19,6 @@
 
 SpellEffectCallback spellEffectCallback = NULL;
 
-CombatController *spellCombatController();
 bool spellMagicAttackAt(const Coords &coords, MapTile attackTile, int attackDamage);
 
 static int spellAwaken(int player);
@@ -318,8 +318,10 @@ bool spellCast(unsigned int spell, int character, int param, SpellCastError *err
     return true;
 }
 
-CombatController *spellCombatController() {
-    return dynamic_cast<CombatController *>(xu4.eventHandler->getController());
+static CombatController *spellCombatController() {
+    TurnController* tc = c->location->turnCompleter;
+    assert(tc->isCombatController());
+    return (CombatController*) tc;
 }
 
 /**

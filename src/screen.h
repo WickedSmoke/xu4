@@ -66,14 +66,14 @@ typedef enum {
     MC_SOUTH
 } MouseCursor;
 
-typedef struct _MouseArea {
+struct MouseArea {
     int npoints;
     struct {
-        int x, y;
+        int16_t x, y;
     } point[4];
     MouseCursor cursor;
     int command[3];
-} MouseArea;
+};
 
 class TileAnimSet;
 
@@ -106,6 +106,7 @@ bool screenLayerUsed(int layer);
 void screenSwapBuffers();
 void screenWait(int numberOfAnimationFrames);
 void screenUploadToGPU();
+void screenHandleEvents(void (*update)(void));
 
 void screenIconify(void);
 

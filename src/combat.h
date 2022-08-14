@@ -38,12 +38,9 @@ public:
     CombatController(CombatMap* cmap = NULL);
     virtual ~CombatController();
 
-    // Controller Methods
-    virtual bool keyPressed(int key);
-    virtual bool isCombatController() const { return true; }
-
     // TurnController Method
     virtual void finishTurn();
+    virtual bool isCombatController() const { return true; }
 
     // Accessor Methods
     bool isCamping()         const { return camping; }
@@ -59,7 +56,8 @@ public:
     void setCreature(const Creature* m) { creature = m; }
 
     // Methods
-    virtual void beginCombat();
+    virtual bool keyPressed(int key);
+    virtual void beginCombat(Stage*);
     virtual void endCombat(bool adjustKarma);
 
     bool creatureRangedAttack(Creature* attacker, int dir);
@@ -68,12 +66,15 @@ public:
 protected:
     virtual void awardLoot();
 
+    void initAltarRoom();
     void initCreature(const Creature *m);
     void fillCreatureTable(const Creature *creature);
     void placeCreatures();
+    void placePartyMembers();
     void attack();
 
     // Properties
+    Stage* stage;
     CombatMap *map;
     PartyMemberVector party;
     unsigned char focus;
@@ -83,7 +84,6 @@ protected:
 
     bool camping;
     bool forceStandardEncounterSize;
-    bool placePartyOnMap;
     bool placeCreaturesOnMap;
     bool winOrLose;
     bool showMessage;
@@ -101,7 +101,6 @@ private:
     bool isWon() const;
     bool isLost() const;
     void moveCreatures();
-    void placePartyMembers();
     void announceActivePlayer();
     bool setActivePlayer(int player);
     bool attackAt(const Coords &coords, PartyMember *attacker, int dir, int range, int distance);

@@ -230,8 +230,6 @@ static void screenInit_data(Screen* scr, Settings& settings) {
     if (xu4.verbose)
         printf("using %s scaler\n", screenGetFilterNames()[ settings.filter ]);
 
-    EventHandler::setKeyRepeat(settings.keydelay, settings.keyinterval);
-
     initDungeonTileChars(scr->dungeonTileChars);
     if (scr->dungeonView)
         scr->dungeonView->cacheGraphicData();

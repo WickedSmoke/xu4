@@ -1,5 +1,6 @@
 //#include <stdio.h>
 //#include <boron/boron.h>
+#include <boron/urlan_atoms.h>
 #include "camp.h"
 #include "spell.h"
 #include "stats.h"
@@ -197,19 +198,24 @@ CFUNC(cf_karma)
 
 /*-cf-
     inn-sleep
-    return: unset!
+    return: N/A; throws 'quit to end script.
 
     Puts the party to sleep for the night (at an Inn).
 */
 CFUNC(cf_innSleep)
 {
-    (void) ut;
     (void) a1;
-    CombatController* cc = new InnController();
-    cc->beginCombat();
 
-    ur_setId(res, UT_UNSET);
-    return UR_OK;
+    stage_runG(STAGE_INNREST, NULL);
+
+    // Quit script (copies cfunc_quit).
+    {
+    UIndex n = ut->stack.used;
+    res = ut->stack.ptr.cell + n;
+    ur_setId(res, UT_INT);
+    ur_int(res) = 0;
+    return boron_throwWord(ut, UR_ATOM_QUIT, n);
+    }
 }
 
 /*-cf-
