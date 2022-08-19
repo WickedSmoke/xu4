@@ -18,6 +18,20 @@ Here is the status of build systems for various target OSes:
 | Windows | src/Makefile.mingw not up to date  | OK | OK |
 
 
+Android
+-------
+
+The Android version must be built from Android Studio by opening the
+`build.gradle` project file.
+
+Populate assets, checkout GLV, & download libraries.
+
+    make mod
+    cd android
+    ./setup.sh
+    cp ../render.pak ../Ultima-IV.mod ../U4-Upgrade.mod assets
+
+
 Developer Builds
 ----------------
 
