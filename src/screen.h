@@ -156,6 +156,12 @@ int  pointInMouseArea(int x, int y, const MouseArea *area);
 
 const ScreenState* screenState();
 
+#ifdef ANDROID
+void screenShowKeyboard();
+#else
+#define screenShowKeyboard()
+#endif
+
 #define SCR_CYCLE_MAX 16
 
 #endif

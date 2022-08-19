@@ -556,6 +556,11 @@ void screenRenderTouchControls() {
 
     gpu_drawGui(xu4.gpu, GPU_DLIST_HUD);
 }
+
+void screenShowKeyboard() {
+    ScreenGLView* sa = SA;
+    glv_showSoftInput(sa->view, 1);
+}
 #endif
 
 /*

@@ -17,7 +17,8 @@
                 android:exported="true"
                 android:launchMode="singleInstance"
                 android:screenOrientation="landscape"
-                android:configChanges="orientation|screenSize|keyboardHidden">
+                android:configChanges="orientation|screenSize|keyboardHidden"
+                android:windowSoftInputMode="adjustPan">
             <!-- Tell NativeActivity the name of our .so -->
             <meta-data android:name="android.app.lib_name"
                     android:value="xu4-activity" />
