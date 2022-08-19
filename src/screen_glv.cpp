@@ -127,6 +127,21 @@ static void handleKeyDownEvent(const GLViewEvent* event,
     int keycode = event->code;
 
     switch (keycode) {
+#ifdef ANDROID
+        // Orient cursor keys for landscape mode.
+        case KEY_Up:
+            key = U4_RIGHT;
+            break;
+        case KEY_Down:
+            key = U4_LEFT;
+            break;
+        case KEY_Left:
+            key = U4_UP;
+            break;
+        case KEY_Right:
+            key = U4_DOWN;
+            break;
+#else
         case KEY_Up:
             key = U4_UP;
             break;
@@ -139,6 +154,7 @@ static void handleKeyDownEvent(const GLViewEvent* event,
         case KEY_Right:
             key = U4_RIGHT;
             break;
+#endif
         case KEY_Back_Space:
         case KEY_Delete:
             key = U4_BACKSPACE;
