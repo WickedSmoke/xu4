@@ -40,6 +40,11 @@ class Coords;
 #define PRINTF_LIKE(x,y)
 #endif
 
+enum TouchControl {
+    TOUCH_KEYBOARD,
+    TOUCH_CHOICE
+};
+
 enum LayoutType {
     LAYOUT_STANDARD,
     LAYOUT_GEM,

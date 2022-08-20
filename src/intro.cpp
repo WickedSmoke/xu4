@@ -16,6 +16,7 @@
 #include "party.h"
 #include "screen.h"
 #include "settings.h"
+#include "textview.h"
 #include "tileset.h"
 #include "u4file.h"
 #include "utils.h"
@@ -842,19 +843,16 @@ void IntroController::initiateNewGame() {
     backgroundArea.draw(BKGD_OPTIONS_BTM, 0, 120);
 
     // display sex prompt and read sex from keyboard
-    menuArea.textAt(3, 3, "Art thou Male or Female?");
+    TextRegions choiceRegions(&menuArea);
+    choiceRegions.textAt(3, 3, "Art thou [Male] or [Female]?");
 
     // the cursor is already enabled, just change its position
     menuArea.setCursorPos(28, 3);
 
     drawBeasties();
 
-    SexType sex;
-    int sexChoice = EventHandler::readChoice("mf");
-    if (sexChoice == 'm')
-        sex = SEX_MALE;
-    else
-        sex = SEX_FEMALE;
+    int sexChoice = EventHandler::readChoice("mf", &choiceRegions);
+    SexType sex = (sexChoice == 'm') ? SEX_MALE : SEX_FEMALE;
 
     // Display entry for a moment.
     menuArea.hideCursor();

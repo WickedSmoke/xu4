@@ -766,15 +766,29 @@ bool ReadStringController::keyPressed(int key) {
  */
 class ReadChoiceController : public WaitableController<int> {
 public:
-    ReadChoiceController(const string &choices);
+    ReadChoiceController(const string &choices, const TextRegions*);
     virtual bool keyPressed(int key);
+    virtual bool inputEvent(const InputEvent*);
 
 protected:
+    void select(int key);
+
     string choices;
+    const TextRegions* regions;
 };
 
-ReadChoiceController::ReadChoiceController(const string &choices) {
+ReadChoiceController::ReadChoiceController(const string &choices,
+        const TextRegions* reg) : regions(reg) {
     this->choices = choices;
+}
+
+void ReadChoiceController::select(int key) {
+    // If the value is printable, display it
+    const ScreenState* ss = screenState();
+    if (ss->cursorVisible && key > ' ' && key <= 0x7F)
+        screenShowChar(toupper(key), ss->cursorX, ss->cursorY);
+    value = key;
+    doneWaiting();
 }
 
 bool ReadChoiceController::keyPressed(int key) {
@@ -784,15 +798,21 @@ bool ReadChoiceController::keyPressed(int key) {
         key = tolower(key);
 
     if (choices.empty() || choices.find_first_of(key) < choices.length()) {
-        // If the value is printable, display it
-        const ScreenState* ss = screenState();
-        if (ss->cursorVisible && key > ' ' && key <= 0x7F)
-            screenShowChar(toupper(key), ss->cursorX, ss->cursorY);
-        value = key;
-        doneWaiting();
+        select(key);
         return true;
     }
 
+    return false;
+}
+
+bool ReadChoiceController::inputEvent(const InputEvent* ev) {
+    if (regions && ev->type == IE_MOUSE_PRESS && ev->n == CMOUSE_LEFT) {
+        int ch = regions->pick(ev->x, ev->y);
+        if (ch >= 0) {
+            select(ch);
+            return true;
+        }
+    }
     return false;
 }
 
@@ -887,7 +907,8 @@ public:
     int waitFor();
 };
 
-ReadPlayerController::ReadPlayerController() : ReadChoiceController("12345678 \033\n") {
+ReadPlayerController::ReadPlayerController() :
+    ReadChoiceController("12345678 \033\n", NULL) {
 #ifdef IOS
     U4IOS::beginCharacterChoiceDialog();
 #endif
@@ -1054,9 +1075,9 @@ int EventHandler::readAlphaAction(char lastValidLetter, const char* prompt)
 /*
  * Read a single key from a provided list.
  */
-char EventHandler::readChoice(const char* choices)
+char EventHandler::readChoice(const char* choices, const TextRegions* regions)
 {
-    ReadChoiceController ctrl(choices);
+    ReadChoiceController ctrl(choices, regions);
     xu4.eventHandler->pushController(&ctrl);
     return ctrl.waitFor();
 }

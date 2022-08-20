@@ -130,6 +130,7 @@ typedef void(*updateScreenCallback)(void);
 
 struct _MouseArea;
 class TextView;
+class TextRegions;
 
 /**
  * A class for handling game events.
@@ -143,7 +144,8 @@ public:
     /* Static user input functions. */
     static int       choosePlayer();
     static int       readAlphaAction(char letter, const char* prompt);
-    static char      readChoice(const char* choices);
+    static char      readChoice(const char* choices,
+                                const TextRegions* regions = NULL);
     static Direction readDir();
     static int       readInt(int maxlen);
     static const char* readString(int maxlen, const char *extraChars = NULL);

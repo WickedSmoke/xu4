@@ -75,6 +75,25 @@ protected:
     bool cursorVisible;         // whether the cursor is enabled
     bool cursorFollowsText;     // places cursor after last char. written
     static Image *charset;      // image containing font
+
+    friend class TextRegions;
+};
+
+class TextRegions {
+public:
+    TextView* view;
+    struct {
+        uint16_t ch, x, y, endX;
+    } region[4];
+    int count;
+
+    TextRegions(TextView*);
+    void textAt(int x, int y, const char *text);
+    int pick(int mouseX, int mouseY) const;
+
+private:
+    void beginRegion(uint16_t ch, uint16_t x, uint16_t y);
+    void endRegion(uint16_t x);
 };
 
 #endif /* TEXTVIEW_H */

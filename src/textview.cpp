@@ -2,6 +2,7 @@
  * TextView.cpp
  */
 
+#include <assert.h>
 #include <stdarg.h>
 
 #include "debug.h"
@@ -15,6 +16,70 @@
 using std::string;
 
 Image *TextView::charset = NULL;
+
+
+TextRegions::TextRegions(TextView* tv) : view(tv), count(0) {
+}
+
+void TextRegions::beginRegion(uint16_t ch, uint16_t x, uint16_t y) {
+    assert(count < 4);
+    region[count].ch = ch;
+    region[count].x = x;
+    region[count].y = y;
+}
+
+void TextRegions::endRegion(uint16_t x) {
+    region[count].endX = x;
+    ++count;
+}
+
+// Return character of region under mouse position or -1 if none.
+int TextRegions::pick(int mouseX, int mouseY) const {
+    int cx, cy;
+    view->mouseTextPos(mouseX, mouseY, cx, cy);
+    for (int i = 0; i < count; ++i) {
+        if (cy == region[i].y && cx >= region[i].x && cx < region[i].endX)
+            return region[i].ch;
+    }
+    return -1;
+}
+
+/*
+ * Draw text in view and mark regions denoted by open and closing braces.
+ */
+void TextRegions::textAt(int x, int y, const char *text) {
+    int ch;
+
+    while ((ch = *text++)) {
+        switch (ch) {
+            case FG_GREY:
+            case FG_BLUE:
+            case FG_PURPLE:
+            case FG_GREEN:
+            case FG_RED:
+            case FG_YELLOW:
+            case FG_WHITE:
+                view->colorFG = FONT_COLOR_INDEX(ch);
+                break;
+
+            case '[':
+                beginRegion(*text, x, y);
+                view->colorFG = FONT_COLOR_INDEX(FG_YELLOW);
+                break;
+
+            case ']':
+                endRegion(x);
+                view->colorFG = FONT_COLOR_INDEX(FG_WHITE);
+                break;
+
+            default:
+                view->drawChar(ch, x++, y);
+                break;
+        }
+    }
+}
+
+//----------------------------------------------------------------------------
 
 TextView::TextView(int x, int y, int columns, int rows)
     : View(x, y, columns * CHAR_WIDTH, rows * CHAR_HEIGHT) {
