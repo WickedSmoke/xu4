@@ -42,6 +42,8 @@ enum GuiOpcode {
     FONT_SIZE,      // point-size
     FONT_VSIZE,     // scaled-vga-height (480 pixels)
     BG_COLOR_CI,    // color-index
+    ITEMS_DT_ST,    // DATA StringTable*
+    ITEMS_TEXT,
 
     // Widgets
     ARRAY_DT_AREA,  // initial-wid, DATA GuiArea*
@@ -63,10 +65,18 @@ typedef struct {
     int wid;
 } GuiArea;
 
-struct TxfDrawState;
+struct GuiPrimGroup {
+    int first;
+    int count;
+};
 
-float* gui_layout(int primList, const GuiRect* root, TxfDrawState*,
+struct TxfDrawState;
+struct StringTable;
+
+float* gui_layout(float* attr, const GuiArea* root, TxfDrawState*,
                   const uint8_t* bytecode, const void** data);
+float* widget_list(float* attr, const GuiRect* wbox, TxfDrawState* ds,
+                   StringTable* st);
 void*  gui_areaTree(const GuiArea* areas, int count);
 const GuiArea* gui_pick(const void* tree, const GuiArea* areas,
                         uint16_t x, uint16_t y);

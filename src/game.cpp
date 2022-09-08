@@ -125,7 +125,7 @@ void GameController::renderHud(ScreenState* ss, void* data)
 {
     //GameController* gc = (GameController*) data;
 
-    gpu_drawGui(xu4.gpu, GPU_DLIST_HUD);
+    gpu_drawGui(xu4.gpu, GPU_DLIST_HUD, NULL, 0);
 }
 
 void GameController::initScreenWithoutReloadingState()

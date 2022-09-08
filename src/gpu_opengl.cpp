@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include "gui.h"
 #include "tileanim.h"
 #include "tileset.h"
 #include "tileview.h"
@@ -768,7 +769,7 @@ void gpu_setScissor(int* box)
  * This should be advanced and passed to gpu_endTris() when all triangles
  * have been generated.
  *
- * /param list  The list identifier in the range 0-2.
+ * /param list  The GpuDrawList identifier.
  */
 float* gpu_beginTris(void* res, int list)
 {
@@ -809,6 +810,23 @@ void gpu_clearTris(void* res, int list)
 }
 
 /*
+ * Copy the current buffer of a list to its other buffer.
+ * It is intended to be used after gpu_endTris() but before the list is drawn
+ * for the first time.
+ */
+void gpu_mirrorList(void* res, int list)
+{
+    OpenGLResources* gr = (OpenGLResources*) res;
+    const DrawList* dl = gr->dl + list;
+    int bn = dl->buf;
+
+    glBindBuffer(GL_COPY_READ_BUFFER, gr->vbo[bn]);
+    glBindBuffer(GL_COPY_WRITE_BUFFER, gr->vbo[bn ^ 1]);
+    glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0,
+                        dl->count * sizeof(float));
+}
+
+/*
  * Draw any triangles created between the last gpu_beginTris/endTris calls.
  */
 void gpu_drawTris(void* res, int list)
@@ -828,9 +846,27 @@ void gpu_drawTris(void* res, int list)
     glDrawArrays(GL_TRIANGLES, 0, dl->count / ATTR_COUNT);
 }
 
-void gpu_drawGui(void* res, int list)
+void gpu_drawGui(void* res, int list, const GuiPrimGroup* groups, int count)
 {
     OpenGLResources* gr = (OpenGLResources*) res;
+    DrawList* dl = gr->dl + list;
+
+#if 0
+    printf("gpu_drawGui list: %d count: %d (%d vtx) groups: [",
+            list, dl->count, dl->count / ATTR_COUNT);
+    int vbytes = ATTR_COUNT * sizeof(float);
+    int usedBytes = 0;
+    for (int i = 0; i < count; ++i) {
+        printf("%d,%d ", groups[i].first, groups[i].count);
+        usedBytes = (groups[i].first + groups[i].count) * vbytes;
+        if (usedBytes > dl->byteSize)
+            printf("!! ");
+    }
+    printf("]\n    excess: %d vtx\n", (dl->byteSize - usedBytes) / vbytes);
+#endif
+
+    if (! dl->count)
+        return;
 
     glUseProgram(gr->shadeGlyph);
     /*
@@ -844,7 +880,18 @@ void gpu_drawGui(void* res, int list)
 
     glEnable(GL_BLEND);
 
-    gpu_drawTris(gr, list);
+    // Similar to gpu_drawTris(gr, list).
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendEquation(GL_FUNC_ADD);
+
+    glBindVertexArray(gr->vao[ dl->buf ]);
+    if (count) {
+        const GuiPrimGroup* end = groups + count;
+        for (; groups != end; ++groups)
+            glDrawArrays(GL_TRIANGLES, groups->first, groups->count);
+    } else
+        glDrawArrays(GL_TRIANGLES, 0, dl->count / ATTR_COUNT);
 }
 
 void gpu_guiClutUV(void* res, float* uv, float colorIndex)

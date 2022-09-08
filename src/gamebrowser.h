@@ -9,7 +9,6 @@ struct ModuleInfo {
     uint8_t parent;
 };
 
-struct TxfHeader;
 struct ScreenState;
 
 class GameBrowser : public Controller {
@@ -37,12 +36,15 @@ private:
     uint16_t sel;
     uint16_t selMusic;          // 0 = none
     GuiArea gbox[ WI_COUNT ];
+    GuiPrimGroup primGroup[2];
     void* atree;
     float lineHeight;
     float psizeList;            // List font point size.
 
     void selectModule(const GuiArea* area, int y);
+    float* layoutList(float*, TxfDrawState*);
     void layout();
+    void updateList();
 
     static void renderBrowser(ScreenState* ss, void* data);
     static void displayReset(int, void*, void*);

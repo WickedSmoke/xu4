@@ -8,6 +8,7 @@ enum GpuDrawList {
 };
 
 struct BlockingGroups;
+struct GuiPrimGroup;
 class Map;
 class TileView;
 
@@ -26,8 +27,9 @@ void     gpu_setScissor(int* box);
 float*   gpu_beginTris(void* res, int list);
 void     gpu_endTris(void* res, int list, float* attr);
 void     gpu_clearTris(void* res, int list);
+void     gpu_mirrorList(void* res, int list);
 void     gpu_drawTris(void* res, int list);
-void     gpu_drawGui(void* res, int list);
+void     gpu_drawGui(void* res, int list, const GuiPrimGroup*, int count);
 void     gpu_guiClutUV(void* res, float* uv, float colorIndex);
 float*   gpu_emitQuad(float* attr, const float* drawRect, const float* uvRect);
 void     gpu_resetMap(void* res, const Map* map);

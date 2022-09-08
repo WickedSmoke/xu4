@@ -156,8 +156,8 @@ static void list_size(SizeCon* size, TxfDrawState* ds, StringTable* st)
     size->prefH = (int16_t) (fsize[1] * rows);
 }
 
-static float* widget_list(float* attr, const GuiRect* wbox, TxfDrawState* ds,
-                          StringTable* st)
+float* widget_list(float* attr, const GuiRect* wbox, TxfDrawState* ds,
+                   StringTable* st)
 {
     const uint8_t* strings = (const uint8_t*) sst_strings(st);
     const StringEntry* it  = st->table;
@@ -289,10 +289,13 @@ static void gui_align(GuiRect* wbox, LayoutBox* lo, const SizeCon* cons)
     }
 }
 
-static void gui_setRootArea(LayoutBox* lo, const GuiRect* root)
+static void gui_setRootArea(LayoutBox* lo, const GuiArea* root)
 {
     if (root) {
-        memcpy(&lo->x, root, sizeof(GuiRect));
+        lo->x = root->x;
+        lo->y = root->y;
+        lo->w = root->x2 - root->x;
+        lo->h = root->y2 - root->y;
     } else {
         const ScreenState* ss = screenState();
         lo->x = lo->y = 0;
@@ -318,7 +321,7 @@ static void gui_setRootArea(LayoutBox* lo, const GuiRect* root)
   \return End primitive attribute pointer which caller must pass to
           gpu_endTris().
 */
-float* gui_layout(int primList, const GuiRect* root, TxfDrawState* ds,
+float* gui_layout(float* attr, const GuiArea* root, TxfDrawState* ds,
                   const uint8_t* bytecode, const void** data)
 {
     SizeCon sconStack[MAX_SIZECON];
@@ -326,10 +329,11 @@ float* gui_layout(int primList, const GuiRect* root, TxfDrawState* ds,
     LayoutBox* lo;
     SizeCon* scon;
     GuiRect wbox;
-    float* attr;
     int arg;
+    //int itemN;
     int areaWid;
     GuiArea* areaArr = NULL;
+    StringTable* itemStr = NULL;
     const uint8_t* pc;
     const void** dp;
     float vgaScale = screenState()->aspectH / 480.0f;
@@ -484,6 +488,13 @@ float* gui_layout(int primList, const GuiRect* root, TxfDrawState* ds,
             pc++;
             break;
 
+        case ITEMS_DT_ST:
+            dp++;
+            break;
+
+        case ITEMS_TEXT:
+            break;
+
         // Widgets
         case ARRAY_DT_AREA: // initial-wid
             dp++;
@@ -519,7 +530,7 @@ layout_done:
     // Second pass to create widget draw list.
     RESET_LAYOUT;
 
-    attr = gpu_beginTris(xu4.gpu, primList);
+    //attr = gpu_beginTris(xu4.gpu, primList);
 
     for(;;) {
         switch (*pc++) {
@@ -701,6 +712,17 @@ layout_done:
             attr = gui_drawRect(attr, &lo->x, (float) arg);
             break;
 
+        case ITEMS_DT_ST:
+            itemStr = (StringTable*) *dp++;
+            //itemN = 0;
+            break;
+
+        case ITEMS_TEXT:
+            gui_align(&wbox, lo, scon);
+            attr = widget_list(attr, &wbox, ds, itemStr);
+            ++scon;
+            break;
+
         // Widgets
         case ARRAY_DT_AREA: // initial-wid
             areaArr = (GuiArea*) *dp++;
@@ -721,7 +743,11 @@ layout_done:
 
         case LIST_DT_ST:
             gui_align(&wbox, lo, scon);
+#if 1
+            dp++;
+#else
             attr = widget_list(attr, &wbox, ds, (StringTable*) *dp++);
+#endif
             ++scon;
             break;
 

@@ -24,7 +24,7 @@ void GameBrowser::renderBrowser(ScreenState* ss, void* data)
 {
     GameBrowser* gb = (GameBrowser*) data;
 
-    gpu_drawGui(xu4.gpu, GPU_DLIST_GUI);
+    gpu_drawGui(xu4.gpu, GPU_DLIST_GUI, gb->primGroup, 2);
 
     if (gb->modFormat.used) {
         const GuiArea* area = gb->gbox + WI_LIST;
@@ -48,6 +48,7 @@ GameBrowser::GameBrowser()
 {
     sel = selMusic = 0;
     psizeList = 20.0f;
+    memset(primGroup, 0, sizeof(primGroup));
     atree = NULL;
 }
 
@@ -212,6 +213,64 @@ static void readModuleList(StringTable* modFiles, StringTable* modFormat,
     }
 }
 
+float* GameBrowser::layoutList(float* attr, TxfDrawState* ds)
+{
+    /*
+    static uint8_t itemGui[] = {
+        ITEMS_DT_ST,
+        FONT_N, 0, FONT_SIZE, PSIZE_LIST,
+        LAYOUT_V,
+            ITEMS_TEXT,
+        LAYOUT_END
+    };
+    const void* guiData[1];
+    */
+    const GuiArea* area = gbox + WI_LIST;
+    GuiRect rect;
+
+    //guiData[0] = &modFormat;
+
+    ds->tf = ds->fontTable[0];
+    txf_setFontSize(ds, psizeList);
+
+    rect.x = area->x;
+    rect.y = area->y;
+    rect.w = area->x2 - area->x;
+    rect.h = area->y2 - area->y;
+    float* a2 = widget_list(attr, &rect, ds, &modFormat);
+
+    if (selMusic) {
+        // Draw green checkmark.
+
+        ds->tf = ds->fontTable[2];
+        ds->colorIndex = 33.0f;
+        ds->x = area->x;
+        ds->y = area->y2 -
+                lineHeight * psizeList * (selMusic + 1.0f) -
+                ds->tf->descender * psizeList;
+        txf_setFontSize(ds, psizeList);
+
+        int quads = txf_genText(ds, a2 + 3, a2, ATTR_COUNT,
+                                (const uint8_t*) "c", 1);
+        a2 += quads * 6 * ATTR_COUNT;
+    }
+
+    primGroup[1].count = (a2 - attr) / ATTR_COUNT;
+    return a2;
+}
+
+void GameBrowser::updateList()
+{
+    float* attr = gpu_beginTris(xu4.gpu, GPU_DLIST_GUI);
+    if (attr) {
+        TxfDrawState ds;
+        ds.fontTable = screenState()->fontTable;
+
+        attr = layoutList(attr + (primGroup[1].first * ATTR_COUNT), &ds);
+        gpu_endTris(xu4.gpu, GPU_DLIST_GUI, attr);
+    }
+}
+
 void GameBrowser::layout()
 {
     static uint8_t browserGui[] = {
@@ -250,26 +309,18 @@ void GameBrowser::layout()
 
     TxfDrawState ds;
     ds.fontTable = screenState()->fontTable;
-    float* attr = gui_layout(GPU_DLIST_GUI, NULL, &ds, browserGui, guiData);
+
+    float* attr = gpu_beginTris(xu4.gpu, GPU_DLIST_GUI);
     if (attr) {
-        if (selMusic) {
-            // Draw green checkmark.
-            const GuiArea* area = gbox + WI_LIST;
+        float* a2 = gui_layout(attr, NULL, &ds, browserGui, guiData);
+        primGroup[0].first = 0;
+        primGroup[0].count = (a2 - attr) / ATTR_COUNT;
 
-            ds.tf = ds.fontTable[2];
-            ds.colorIndex = 33.0f;
-            ds.x = area->x;
-            ds.y = area->y2 -
-                   lineHeight * psizeList * (selMusic + 1.0f) -
-                   ds.tf->descender * psizeList;
-            txf_setFontSize(&ds, psizeList);
-
-            int quads = txf_genText(&ds, attr + 3, attr, ATTR_COUNT,
-                                    (const uint8_t*) "c", 1);
-            attr += quads * 6 * ATTR_COUNT;
-        }
+        primGroup[1].first = primGroup[0].count;
+        attr = layoutList(a2, &ds);
 
         gpu_endTris(xu4.gpu, GPU_DLIST_GUI, attr);
+        gpu_mirrorList(xu4.gpu, GPU_DLIST_GUI);
 
         free(atree);
         atree = gui_areaTree(gbox, WI_COUNT);
@@ -363,7 +414,7 @@ bool GameBrowser::keyPressed(int key)
         case U4_SPACE:
             if (infoList[sel].category == MOD_SOUNDTRACK) {
                 selMusic = (selMusic == sel) ? 0 : sel;
-                layout();
+                updateList();
             }
             return true;
 
