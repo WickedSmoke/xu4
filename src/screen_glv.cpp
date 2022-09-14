@@ -7,6 +7,7 @@
 #include "debug.h"
 #include "error.h"
 #include "event.h"
+#include "gpu.h"
 #include "gpu_opengl.h"
 #include "image.h"
 #include "settings.h"
@@ -26,6 +27,10 @@ struct ScreenGLView {
     GLView* view;
     Controller* waitCon;
     updateScreenCallback update;
+#ifdef USE_TOUCH
+    PrimGroup touchPrim[2];
+    uint16_t keyboardState;
+#endif
 #ifdef ANDROID
     uint16_t dpadState;
     uint16_t dpadStateDrawn;
@@ -301,6 +306,11 @@ mouse_pos:
     }
 }
 
+#ifdef USE_TOUCH
+extern void screenMakeTouchControls();
+#else
+#define screenMakeTouchControls()
+#endif
 
 void screenInit_sys(const Settings* settings, ScreenState* state, int reset) {
     ScreenGLView* sa;
@@ -402,6 +412,7 @@ void screenInit_sys(const Settings* settings, ScreenState* state, int reset) {
     if (gpuError)
         errorFatal("Unable to obtain OpenGL resource (%s)", gpuError);
 
+    screenMakeTouchControls();
     return;
 
 fatal:
@@ -489,13 +500,35 @@ void screenShowMouseCursor(bool visible) {
 #endif
 }
 
-#ifdef ANDROID
-#include "gpu.h"
+#ifdef USE_TOUCH
+#include "gui.h"
+#include "gui_touch.c"
 #define SCREEN_FONT_SYMBOL  2
 
-void screenRenderTouchControls() {
-    const ScreenState* ss = screenState();
+void screenMakeTouchControls() {
     ScreenGLView* sa = SA;
+    float* attr;
+    float* a2;
+
+    sa->keyboardState = 0;
+    attr = gpu_beginTris(xu4.gpu, GPU_DLIST_HUD);
+
+    a2 = gui_keyboardQuads(attr, 0);
+    sa->touchPrim[0].first = 0;
+    sa->touchPrim[0].count = (a2 - attr) / ATTR_COUNT;
+
+    attr = gui_keyboardQuads(a2, 1);
+    sa->touchPrim[1].first = sa->touchPrim[0].count;
+    sa->touchPrim[1].count = (attr - a2) / ATTR_COUNT;
+
+    gpu_endTris(xu4.gpu, GPU_DLIST_HUD, attr);
+}
+
+static void _renderTouchControls(ScreenState* ss, void* user) {
+    ScreenGLView* sa = SA;
+    //int groupMask = 0;
+
+#ifdef ANDROID
     if (sa->dpadStateDrawn != sa->dpadState) {
         sa->dpadStateDrawn = sa->dpadState;
 
@@ -553,13 +586,21 @@ void screenRenderTouchControls() {
         } else
             gpu_clearTris(xu4.gpu, GPU_DLIST_HUD);
     }
-
-    gpu_drawGui(xu4.gpu, GPU_DLIST_HUD);
+#else
+    if (sa->keyboardState)
+        gpu_drawGui(xu4.gpu, GPU_DLIST_HUD, sa->touchPrim, 1);
+#endif
 }
 
 void screenShowKeyboard() {
     ScreenGLView* sa = SA;
+#ifdef ANDROID
     glv_showSoftInput(sa->view, 1);
+#else
+    sa->keyboardState ^= 1;
+    screenSetLayer(LAYER_TOP_MENU,
+                   sa->keyboardState ? _renderTouchControls : NULL, NULL);
+#endif
 }
 #endif
 

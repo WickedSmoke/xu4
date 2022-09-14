@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 typedef struct RGBA  RGBA;
+typedef struct Image32 Image32;
 
 struct RGBA {
     uint8_t r, g, b, a;
@@ -16,10 +17,10 @@ struct RGBA {
 #define rgba_set(S,R,G,B,A)     S.r = R; S.g = G; S.b = B; S.a = A
 #define rgba_setp(S,R,G,B,A)    S->r = R; S->g = G; S->b = B; S->a = A
 
-typedef struct {
+struct Image32 {
     uint32_t* pixels;
     uint16_t w, h;
-} Image32;
+};
 
 #ifdef __cplusplus
 //extern "C" {

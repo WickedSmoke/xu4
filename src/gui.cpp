@@ -28,7 +28,7 @@
 
 #define ATTR_COUNT  7
 #define LO_DEPTH    6
-#define MAX_SIZECON 24
+#define MAX_SIZECON 80
 
 enum AlignBits {
     ALIGN_L = 1,

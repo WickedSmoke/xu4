@@ -1,4 +1,5 @@
 #include "controller.h"
+#include "gpu.h"
 #include "gui.h"
 
 struct ModuleInfo {
@@ -36,7 +37,7 @@ private:
     uint16_t sel;
     uint16_t selMusic;          // 0 = none
     GuiArea gbox[ WI_COUNT ];
-    GuiPrimGroup primGroup[2];
+    PrimGroup primGroup[2];
     void* atree;
     float lineHeight;
     float psizeList;            // List font point size.

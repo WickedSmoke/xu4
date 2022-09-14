@@ -1024,6 +1024,10 @@ bool EventHandler::globalKeyHandler(int key) {
  */
 bool EventHandler::defaultKeyHandler(int key) {
     switch (key) {
+    case U4_TAB:
+        screenShowKeyboard();
+        break;
+
 #ifdef DEBUG
     case '`':
         if (c && c->location) {

@@ -4,7 +4,6 @@
 #include "config.h"
 #include "event.h"
 #include "image32.h"
-#include "gpu.h"
 #include "module.h"
 #include "settings.h"
 #include "screen.h"

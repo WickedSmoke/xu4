@@ -1,3 +1,6 @@
+#ifndef GPU_H
+#define GPU_H
+
 #include <stdint.h>
 
 enum GpuDrawList {
@@ -7,8 +10,13 @@ enum GpuDrawList {
     GPU_DLIST_VIEW_FX
 };
 
+struct PrimGroup {
+    int first;
+    int count;
+};
+
 struct BlockingGroups;
-struct GuiPrimGroup;
+struct Image32;
 class Map;
 class TileView;
 
@@ -29,10 +37,12 @@ void     gpu_endTris(void* res, int list, float* attr);
 void     gpu_clearTris(void* res, int list);
 void     gpu_mirrorList(void* res, int list);
 void     gpu_drawTris(void* res, int list);
-void     gpu_drawGui(void* res, int list, const GuiPrimGroup*, int count);
+void     gpu_drawGui(void* res, int list, const PrimGroup*, int count);
 void     gpu_guiClutUV(void* res, float* uv, float colorIndex);
 float*   gpu_emitQuad(float* attr, const float* drawRect, const float* uvRect);
 void     gpu_resetMap(void* res, const Map* map);
 void     gpu_drawMap(void* res, const TileView* view, const float* tileUVs,
                      const BlockingGroups* blocks,
                      int cx, int cy, float scale);
+
+#endif //GPU_H

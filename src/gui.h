@@ -65,11 +65,6 @@ typedef struct {
     int wid;
 } GuiArea;
 
-struct GuiPrimGroup {
-    int first;
-    int count;
-};
-
 struct TxfDrawState;
 struct StringTable;
 

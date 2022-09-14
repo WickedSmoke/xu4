@@ -28,6 +28,8 @@
 #include "txf_draw.h"
 #include "u4file.h"
 
+#define USE_TOUCH
+
 class Image;
 class Map;
 class Tile;
@@ -161,11 +163,11 @@ int  pointInMouseArea(int x, int y, const MouseArea *area);
 
 const ScreenState* screenState();
 
-#ifdef ANDROID
+//#ifdef ANDROID
 void screenShowKeyboard();
-#else
-#define screenShowKeyboard()
-#endif
+//#else
+//#define screenShowKeyboard()
+//#endif
 
 #define SCR_CYCLE_MAX 16
 

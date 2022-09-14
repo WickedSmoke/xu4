@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "gui.h"
+#include "gpu.h"
 #include "tileanim.h"
 #include "tileset.h"
 #include "tileview.h"
@@ -846,7 +846,7 @@ void gpu_drawTris(void* res, int list)
     glDrawArrays(GL_TRIANGLES, 0, dl->count / ATTR_COUNT);
 }
 
-void gpu_drawGui(void* res, int list, const GuiPrimGroup* groups, int count)
+void gpu_drawGui(void* res, int list, const PrimGroup* groups, int count)
 {
     OpenGLResources* gr = (OpenGLResources*) res;
     DrawList* dl = gr->dl + list;
@@ -887,7 +887,7 @@ void gpu_drawGui(void* res, int list, const GuiPrimGroup* groups, int count)
 
     glBindVertexArray(gr->vao[ dl->buf ]);
     if (count) {
-        const GuiPrimGroup* end = groups + count;
+        const PrimGroup* end = groups + count;
         for (; groups != end; ++groups)
             glDrawArrays(GL_TRIANGLES, groups->first, groups->count);
     } else
