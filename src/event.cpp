@@ -650,6 +650,7 @@ public:
                          const char* accepted_chars = NULL);
 
     virtual bool keyPressed(int key);
+    virtual bool inputEvent(const InputEvent*);
 
 #ifdef IOS
     void setValue(const string &utf8StringValue) {
@@ -660,6 +661,7 @@ public:
 protected:
     int maxlen, screenX, screenY;
     TextView *view;
+    char* screenWord;
     uint8_t accepted[16];   // Character bitset.
 
     friend EventHandler;
@@ -692,6 +694,7 @@ ReadStringController::ReadStringController(int maxlen, int screenX, int screenY,
     this->screenX = screenX;
     this->screenY = screenY;
     view = textView;
+    screenWord = NULL;
 
     if (accepted_chars) {
         memset(accepted, 0, MAX_BITS/8);
@@ -757,6 +760,33 @@ bool ReadStringController::keyPressed(int key) {
             soundInvalidInput();
         return valid;
     }
+}
+
+bool ReadStringController::inputEvent(const InputEvent* ev) {
+    switch (ev->type) {
+        case IE_MOUSE_MOVE:
+            if (screenWord) {
+                char* word = screenMessageWordAt(ev->x, ev->y);
+                if (word && (word != screenWord)) {
+                    printf("KR %s\n", word);
+                    screenWord = word;
+                }
+            }
+            break;
+        case IE_MOUSE_PRESS:
+            if (ev->n == CMOUSE_LEFT)
+                screenWord = screenMessageWordAt(ev->x, ev->y);
+            break;
+        case IE_MOUSE_RELEASE:
+            if (ev->n == CMOUSE_LEFT && screenWord) {
+                value = screenWord;
+                screenTextAt(screenX, screenY, screenWord);
+                screenWord = NULL;
+                doneWaiting();
+            }
+            break;
+    }
+    return false;
 }
 
 //----------------------------------------------------------------------------

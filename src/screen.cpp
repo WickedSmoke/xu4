@@ -79,6 +79,7 @@ struct Screen {
     ImageInfo* charsetInfo;
     ImageInfo* gemTilesInfo;
     char* msgBuffer;
+    char* msgCharGrid;
     ScreenState state;
     TxfHeader* txf[3];
     short needPrompt;
@@ -112,6 +113,10 @@ struct Screen {
         gemTilesInfo = NULL;
         msgBuffer = new char[MsgBufferSize];
 
+        const int gridSize = TEXT_AREA_W * TEXT_AREA_H + 1;
+        msgCharGrid = new char[gridSize];
+        memset(msgCharGrid, '\0', gridSize);
+
         state.tileanims = NULL;
         state.fontTable = txf;
         state.currentCycle = 0;
@@ -139,6 +144,7 @@ struct Screen {
         }
         delete dungeonView;
         delete[] msgBuffer;
+        delete[] msgCharGrid;
         delete[] layers;
     }
 };
@@ -408,6 +414,7 @@ void screenMessageCenter(const char* text, int newlines) {
 }
 
 void screenMessageN(const char* buffer, int buflen) {
+    char* cgrid = XU4_SCREEN->msgCharGrid;
     bool colorize = xu4.settings->enhancements &&
                     xu4.settings->enhancementsOptions.textColorization;
     const int colCount = TEXT_AREA_W;
@@ -469,6 +476,7 @@ newline:
                 if (c->col == 0 && c->hawkwindHack)
                     continue;
 
+                cgrid[c->line * TEXT_AREA_W + c->col] = '\0';
                 screenShowChar(' ', TEXT_AREA_X+c->col, TEXT_AREA_Y+c->line);
                 c->col++;
                 continue;
@@ -497,6 +505,7 @@ newline:
         }
 
         for (; i < w; ++i) {
+            cgrid[c->line * TEXT_AREA_W + c->col] = buffer[i];
             screenShowChar(buffer[i], TEXT_AREA_X+c->col, TEXT_AREA_Y+c->line);
             c->col++;
         }
@@ -918,6 +927,7 @@ void screenShowChar(int chr, int x, int y) {
     int charH = CHAR_HEIGHT;
     int colorFG = XU4_SCREEN->colorFG;
 
+
     if (colorFG == FONT_COLOR_INDEX(FG_WHITE)) {
         charset->drawSubRect(x * charW, y * charH,
                              0, chr * charH, charW, charH);
@@ -946,6 +956,13 @@ static void screenScrollMessageArea() {
     screen->fillRect(TEXT_AREA_X * charW,
                      TEXT_AREA_Y * charH + (TEXT_AREA_H - 1) * charH,
                      TEXT_AREA_W * charW, charH, 0, 0, 0);
+
+    {
+    char* cgrid = XU4_SCREEN->msgCharGrid;
+    const int ccount = TEXT_AREA_W * (TEXT_AREA_H - 1);
+    memmove(cgrid, cgrid + TEXT_AREA_W, ccount);
+    memset(cgrid + ccount, '\0', TEXT_AREA_W);
+    }
 }
 
 void screenCycle() {
@@ -1445,10 +1462,10 @@ static int pointInTriangle(int x, int y, int tx1, int ty1, int tx2, int ty2, int
  * Transform window x,y to MouseArea coordinate system.
  */
 void screenPointToMouseArea(int* x, int* y) {
-    const Screen* sp = XU4_SCREEN;
-    unsigned int scale = sp->state.aspectH / U4_SCREEN_H;
-    *x = (*x - sp->state.aspectX) / scale;
-    *y = (*y - sp->state.aspectY) / scale;
+    const ScreenState* ss = &XU4_SCREEN->state;
+    unsigned int scale = ss->aspectH / U4_SCREEN_H;
+    *x = (*x - ss->aspectX) / scale;
+    *y = (*y - ss->aspectY) / scale;
 }
 
 /**
@@ -1475,6 +1492,27 @@ int pointInMouseArea(int x, int y, const MouseArea *area) {
     }
 
     return 0;
+}
+
+/*
+ * Return word in message area at pixel position.
+ */
+char* screenMessageWordAt(int x, int y)
+{
+    screenPointToMouseArea(&x, &y);
+    x = (x / CHAR_WIDTH)  - TEXT_AREA_X;
+    y = (y / CHAR_HEIGHT) - TEXT_AREA_Y;
+    if (x < 0 || y < 0 || x >= TEXT_AREA_W || y >= TEXT_AREA_H)
+        return NULL;
+
+    char* cp = XU4_SCREEN->msgCharGrid + (y * TEXT_AREA_W) + x;
+    if (*cp <= ' ')
+        return NULL;
+    while (x > 0 && cp[-1] > ' ') {
+        --cp;
+        --x;
+    }
+    return cp;
 }
 
 void screenRedrawMapArea() {

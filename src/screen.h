@@ -131,6 +131,7 @@ void screenCrLf();
 void screenMessage(const char *fmt, ...) PRINTF_LIKE(1, 2);
 void screenMessageCenter(const char* text, int newlines);
 void screenMessageN(const char* buffer, int buflen);
+char* screenMessageWordAt(int x, int y);
 void screenPrompt(void);
 void screenRedrawMapArea(void);
 void screenShake(int iterations);
