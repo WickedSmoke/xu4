@@ -422,12 +422,7 @@ static int frameSleep(FrameSleep* fs, uint32_t waitTime) {
 void mainLoop(MainLoop* lp)
 {
     while (stage_transition()) {
-        screenHandleEvents(NULL /*updateScreen*/);
-
-#ifdef DEBUG
-        xu4.eventHandler->emitRecordedKeys();
-#endif
-
+        // Perform stage updates.
         if (lp->runTime >= xu4.timerInterval) {
             lp->runTime -= xu4.timerInterval;
             lp->gameCycle = 1;
@@ -441,6 +436,12 @@ void mainLoop(MainLoop* lp)
 
         screenSwapBuffers();
         frameSleep(&lp->fs, 0);
+
+        // Handle input (which may queue a new stage).
+        screenHandleEvents(NULL /*updateScreen*/);
+#ifdef DEBUG
+        xu4.eventHandler->emitRecordedKeys();
+#endif
     }
 }
 
