@@ -122,7 +122,6 @@ void jimmy();
 void opendoor();
 bool gamePeerCity(int city, void *data);
 void peer(bool useGem = true);
-void talk();
 bool fireAt(const Coords &coords, bool originAvatar);
 void readyWeapon(int player = -1);
 

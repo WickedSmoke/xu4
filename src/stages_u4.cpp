@@ -2,7 +2,7 @@
 //#include "event.h"
 
 
-static int anykey_dispatch(Stage* st, const InputEvent* ev)
+static int anyin_dispatch(Stage* st, const InputEvent* ev)
 {
     switch (ev->type) {
         case IE_KEY_PRESS:
@@ -63,7 +63,6 @@ EXTERN_ELD(innrest)
 EXTERN___D(stats)
 EXTERN___D(cheat)
 EXTERN_E__(disc)
-EXTERN_E__(discB)
 EXTERN___D(mixin5)
 
 
@@ -87,7 +86,7 @@ const StageDef stagesU4[STAGE_COUNT] = {
   {NULL,
      error_enter,      nop_leave,    error_dispatch, CHILD, 12},// STAGE_IERROR
   {NULL,
-     about_enter,    about_leave,   anykey_dispatch, CHILD, 0}, // STAGE_ABOUT
+     about_enter,    about_leave,    anyin_dispatch, CHILD, 0}, // STAGE_ABOUT
   {NULL,
       game_enter,     game_leave,     game_dispatch, ROOT, 1},  // STAGE_PLAY
   {NULL,
@@ -120,8 +119,6 @@ const StageDef stagesU4[STAGE_COUNT] = {
        nop_enter,      nop_leave,    cheat_dispatch, CHILD, 0}, // STAGE_CHEAT
   {NULL,
       disc_enter,      nop_leave,      nop_dispatch, CHILD, 0}, // STAGE_DISC
-  {NULL,
-     discB_enter,      nop_leave,      nop_dispatch, 0, 0},     // STAGE_DISC_B
   {NULL,
        nop_enter,      nop_leave,   mixin5_dispatch, CHILD, 0}, // STAGE_MIXIN5
   {NULL,

@@ -159,25 +159,19 @@ bool discourse_run(const Discourse* dis, uint16_t entry, Person* npc)
 }
 
 /*
- * STAGE_DISC - Having escaped any input handler a new mainLoop can be run.
+ * STAGE_DISC
  */
 void* disc_enter(Stage* st, void* args) {
-    stage_runArgs(STAGE_DISC_B, args);
-    mainLoop(&xu4.loop);
-    return NULL;
-}
-
-/*
- * STAGE_DISC_B
- */
-void* discB_enter(Stage* st, void* args) {
     uintptr_t* arg = (uintptr_t*) args;
     const Discourse* dis = (const Discourse*) arg[0];
     uint16_t entry       = arg[1];
     Person* npc          = (Person*) arg[2];
 
-    //Controller noTurns;
-    //xu4.eventHandler->pushController(&noTurns);
+    // Stage::data must be initialized here as it is checked by
+    // GameController::timerFired() inside the recursive mainLoop run by
+    // the talk functions.  It would otherwise not be set by
+    // stage_transition() until this enter method returns.
+    st->data = NULL;
 
     switch (dis->system) {
     case DISCOURSE_CASTLE:
@@ -226,8 +220,8 @@ void* discB_enter(Stage* st, void* args) {
         break;
     }
 
-    //xu4.eventHandler->popController();
-    stage_abort();
+    xu4.game->finishTurn();
+    stage_done();
     return NULL;
 }
 

@@ -49,6 +49,7 @@ static bool mixReagentsForSpellU5(int spell);
 static void newOrder();
 
 /* conversation functions */
+static bool talk();
 static bool talkAt(const Coords &coords, int distance);
 
 
@@ -1194,8 +1195,9 @@ bool GameController::keyPressed(Stage* st, int key) {
             break;
 
         case 't':
-            talk();
-            break;
+            if (talk())
+                finishTurn();
+            return true;
 
         case 'u': {
             screenMessage("Use which item:\n");
@@ -2510,17 +2512,20 @@ void readyWeapon(int player) {
     }
 }
 
-void talk() {
+/*
+ * Return true if the turn should end.
+ */
+static bool talk() {
     screenMessage("Talk: ");
 
     if (c->party->isFlying()) {
         screenMessage("%cDrift only!%c\n", FG_GREY, FG_WHITE);
-        return;
+        return true;
     }
 
     Direction dir = gameGetDirection();
     if (dir == DIR_NONE)
-        return;
+        return true;
 
     vector<Coords> path =
         gameGetDirectionalActionPath(MASK_DIR(dir), MASK_DIR_ALL,
@@ -2529,10 +2534,11 @@ void talk() {
     int dist = 1;
     for (vector<Coords>::iterator i = path.begin(); i != path.end(); i++) {
         if (talkAt(*i, dist++))
-            return;
+            return false;
     }
 
     screenMessage("Funny, no response!\n");
+    return true;
 }
 
 /**
@@ -2761,10 +2767,8 @@ void peer(bool useGem) {
 static bool talkAt(const Coords &coords, int distance) {
     /* can't have any conversations outside of town */
     City* city = static_cast<City*>(c->location->map);
-    if (! isCity(city)) {
-        screenMessage("Funny, no response!\n");
-        return true;
-    }
+    if (! isCity(city))
+        return false;
 
     /* make sure we have someone we can talk with */
     Person* speaker = city->personAt(coords);
