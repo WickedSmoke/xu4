@@ -329,7 +329,6 @@ static CombatController *spellCombatController() {
  */
 void spellMagicAttack(Symbol tilename, Direction dir, int minDamage, int maxDamage) {
     CombatController *controller = spellCombatController();
-    PartyMemberVector *party = controller->getParty();
 
     MapTile tile = c->location->map->tileset->getByName(tilename)->getId();
 
@@ -337,7 +336,7 @@ void spellMagicAttack(Symbol tilename, Direction dir, int minDamage, int maxDama
         xu4_random((maxDamage + 1) - minDamage) + minDamage :
         maxDamage;
 
-    vector<Coords> path = gameGetDirectionalActionPath(MASK_DIR(dir), MASK_DIR_ALL, (*party)[controller->getFocus()]->coords,
+    vector<Coords> path = gameGetDirectionalActionPath(MASK_DIR(dir), MASK_DIR_ALL, controller->getCurrentPlayer()->coords,
                                                        1, 11, Tile::canAttackOverTile, false);
     for (vector<Coords>::iterator i = path.begin(); i != path.end(); i++) {
         if (spellMagicAttackAt(*i, tile, attackDamage))

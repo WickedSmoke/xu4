@@ -34,9 +34,10 @@ public:
     static bool attackHit(const Creature *attacker, const Creature *defender);
     static void engage(MapId mid, const Creature* creatures);
     static void engageDungeon(Dungeon* dng, int room, Direction from);
+    static CombatController* init(CombatMap*);
 
-    CombatController(CombatMap* cmap = NULL);
-    virtual ~CombatController();
+    CombatController() {}
+    virtual ~CombatController() {}
 
     // TurnController Method
     virtual void finishTurn();
@@ -49,8 +50,8 @@ public:
     unsigned char getFocus() const { return focus; }
     CombatMap* getMap()      const { return map; }
     const Creature* getCreature() const { return creature; }
-    PartyMemberVector* getParty()   { return &party; }
-    PartyMember* getCurrentPlayer() { return party[focus]; }
+    PartyMember** getTroop() { return troop; }
+    PartyMember* getCurrentPlayer() { return troop[focus]; }
 
     void setExitDir(Direction d) { exitDir = d; }
     void setCreature(const Creature* m) { creature = m; }
@@ -76,7 +77,7 @@ protected:
     // Properties
     Stage* stage;
     CombatMap *map;
-    PartyMemberVector party;
+    PartyMember* troop[AREA_PLAYERS];
     unsigned char focus;
 
     const Creature *creatureTable[AREA_CREATURES];
@@ -88,10 +89,10 @@ protected:
     bool winOrLose;
     bool showMessage;
     Direction exitDir;
+public:
     int listenerId;
 
 private:
-    static void combatNotice(int, void*, void*);
     CombatController(const CombatController&);
     const CombatController &operator=(const CombatController&);
 

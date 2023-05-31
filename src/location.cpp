@@ -363,8 +363,8 @@ static void movePartyMember(CombatController* ct, MoveEvent &event) {
     CombatMap* map = ct->getMap();
     int member = ct->getFocus();
     Coords newCoords;
-    PartyMemberVector *party = ct->getParty();
-    PartyMember* pm = (*party)[member];
+    PartyMember** troop = ct->getTroop();
+    PartyMember* pm = troop[member];
 
     event.result = MOVE_SUCCEEDED;
 
@@ -389,7 +389,7 @@ static void movePartyMember(CombatController* ct, MoveEvent &event) {
 
             ct->setExitDir(event.dir);
             map->removeObject(pm);
-            (*party)[member] = NULL;
+            troop[member] = NULL;
             event.result = (MoveResult)(MOVE_EXIT_TO_PARENT | MOVE_MAP_CHANGE |
                                         MOVE_SUCCEEDED | MOVE_END_TURN);
             return;
@@ -671,8 +671,7 @@ TileId Location::getReplacementTile(const Coords& atCoords, const Tile * forTile
 int Location::getCurrentPosition(Coords* pos) {
     if (context & CTX_COMBAT) {
         CombatController* cc = (CombatController*) turnCompleter;
-        PartyMemberVector *party = cc->getParty();
-        *pos = (*party)[cc->getFocus()]->coords;
+        *pos = cc->getCurrentPlayer()->coords;
     }
     else
         *pos = coords;

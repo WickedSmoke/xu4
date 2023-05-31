@@ -38,6 +38,7 @@ public:
 struct MouseArea;
 struct ScreenState;
 struct Stage;
+class CombatController;
 
 /**
  * The main game controller that handles basic game flow and keypresses.
@@ -73,6 +74,7 @@ public:
 
     uintptr_t stageArgs[4];
     TileView mapArea;
+    CombatController* combatCon;
     Discourse vendorDisc;
     Discourse castleDisc;
     bool cutScene;

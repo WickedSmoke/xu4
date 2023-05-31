@@ -82,6 +82,7 @@ static const MouseArea mouseAreas[] = {
 
 GameController::GameController() :
     mapArea(BORDER_WIDTH, BORDER_HEIGHT, VIEWPORT_W, VIEWPORT_H),
+    combatCon(NULL),
     cutScene(false),
     borderAttr(NULL),
     borderAttrLen(0)
@@ -100,6 +101,9 @@ GameController::~GameController() {
     discourse_free(&castleDisc);
 
     free(borderAttr);
+
+    delete combatCon;
+    combatCon = NULL;
 
     delete c;
     c = NULL;

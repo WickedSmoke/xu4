@@ -41,8 +41,8 @@ CombatMap *getCombatMap(Map *punknown) {
 }
 
 void CombatController::engage(MapId mid, const Creature* creatures) {
-    CombatMap* map = getCombatMap(xu4.config->map(mid));
-    CombatController* cc = new CombatController(map);
+    CombatController* cc =
+        CombatController::init( getCombatMap(xu4.config->map(mid)) );
     cc->initCreature(creatures);
 
     stage_runG(STAGE_COMBAT, cc);
@@ -53,30 +53,26 @@ void CombatController::engage(MapId mid, const Creature* creatures) {
  */
 void CombatController::engageDungeon(Dungeon* dng, int room, Direction from) {
     dng->currentRoom = room;
-    CombatController* cc = new CombatController(dng->roomMaps[room]);
+
+    CombatController* cc = CombatController::init(dng->roomMaps[room]);
     cc->initCreature(NULL);
     cc->initDungeonRoom(room, from);
 
     stage_runG(STAGE_COMBAT, cc);
 }
 
-/**
- * A CombatController is automatically deleted when popped from the
- * EventHandler controller stack, so it must be created with new.
- */
-CombatController::CombatController(CombatMap* cmap) {
-    camping = false;
-    forceStandardEncounterSize = false;
-    showMessage = true;
-    listenerId = gs_listen(1<<SENDER_PARTY, combatNotice, this);
+CombatController* CombatController::init(CombatMap* cmap) {
+    CombatController* cc = xu4.game->combatCon;
+    if (! cc)
+        cc = xu4.game->combatCon = new CombatController;
 
-    map = cmap;
+    cc->camping = false;
+    cc->forceStandardEncounterSize = false;
+    cc->showMessage = true;
+    cc->map = cmap;
     if (cmap)
-        xu4.game->setMap(cmap, true, NULL, this);
-}
-
-CombatController::~CombatController() {
-    gs_unplug(listenerId);
+        xu4.game->setMap(cmap, true, NULL, cc);
+    return cc;
 }
 
 /*
@@ -108,7 +104,7 @@ void CombatController::initCreature(const Creature *m) {
         creatureTable[i] = NULL;
 
     for (i = 0; i < AREA_PLAYERS; i++)
-        party.push_back(NULL);
+        troop[i] = NULL;
 
     /* fill the creature table if a creature was provided to create */
     fillCreatureTable(m);
@@ -446,7 +442,7 @@ void CombatController::placePartyMembers() {
             /* add the party member to the map */
             p->placeOnMap(map, map->player_start[i]);
             map->objects.push_back(p);
-            party[i] = p;
+            troop[i] = p;
         }
     }
 }
@@ -460,11 +456,11 @@ void CombatController::announceActivePlayer() {
  * Sets the active player for combat, showing which weapon they're weilding, etc.
  */
 bool CombatController::setActivePlayer(int player) {
-    PartyMember *p = party[player];
+    PartyMember *p = troop[player];
 
     if (p && !p->isDisabled()) {
-        if (party[focus])
-            party[focus]->focused = false;
+        if (troop[focus])
+            troop[focus]->focused = false;
 
         p->focused = true;
         focus = player;
@@ -725,6 +721,7 @@ bool CombatController::returnWeaponToOwner(const Coords &coords, int distance, i
 void CombatController::finishTurn() {
     PartyMember *player = getCurrentPlayer();
     int quick;
+    int active;
 
     /* return to party overview */
     c->stats->setView(STATS_PARTY_OVERVIEW);
@@ -810,13 +807,14 @@ void CombatController::finishTurn() {
 
             /* get the next party member */
             player = getCurrentPlayer();
+            active = c->party->getActivePlayer();
 
-        } while (!player ||
-                  player->isDisabled() || /* dead or sleeping */
-                 ((c->party->getActivePlayer() >= 0) && /* active player is set */
-                  (party[c->party->getActivePlayer()]) && /* and the active player is still in combat */
-                  !party[c->party->getActivePlayer()]->isDisabled() && /* and the active player is not disabled */
-                  (c->party->getActivePlayer() != focus)));
+        } while (! player ||
+                 player->isDisabled() || /* dead or sleeping */
+                 ((active >= 0) && /* active player is set */
+                  troop[active] && /* and the active player is still in combat */
+                  ! troop[active]->isDisabled() && /* and the active player is not disabled */
+                  (active != focus)));
     }
     else
         map->annotations.passTurn();
@@ -842,7 +840,7 @@ void CombatController::movePartyMember(MoveEvent &event) {
         c->party->setActivePlayer(-1);
         /* assign active player to next available party member */
         for (int i = 0; i < c->party->size(); i++) {
-            if (party[i] && !party[i]->isDisabled()) {
+            if (troop[i] && !troop[i]->isDisabled()) {
                 c->party->setActivePlayer(i);
                 break;
             }
@@ -1223,7 +1221,7 @@ void CombatController::attack() {
         returnWeaponToOwner(targetCoords, targetDistance, MASK_DIR(dir), weapon);
 }
 
-void CombatController::combatNotice(int sender, void* eventData, void* user) {
+static void combatNotice(int sender, void* eventData, void* user) {
     PartyEvent* event = (PartyEvent*) eventData;
     (void) sender;
     (void) user;
@@ -1400,12 +1398,14 @@ MapId GameController::combatMapForTile(const Tile *groundTile, Object *obj) {
  */
 void* combat_enter(Stage* st, void* args) {
     CombatController* cc = (CombatController*) args;
+    cc->listenerId = gs_listen(1<<SENDER_PARTY, combatNotice, cc);
     cc->beginCombat(st);
     return cc;
 }
 
 void combat_leave(Stage* st) {
-    delete (CombatController*) st->data;
+    CombatController* cc = (CombatController*) st->data;
+    gs_unplug(cc->listenerId);
 }
 
 int combat_dispatch(Stage* st, const InputEvent* ev) {
